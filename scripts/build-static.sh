@@ -61,6 +61,19 @@ ensure_target() {
     fi
 }
 
+# Setup cross-compilation environment
+setup_cross_env() {
+    local platform="$1"
+
+    case "$platform" in
+        linux-arm64)
+            # Use zig as cross-compiler for aarch64-musl
+            export CC_aarch64_unknown_linux_musl="$PROJECT_ROOT/scripts/zig-cc-aarch64-linux-musl"
+            export AR_aarch64_unknown_linux_musl="zig ar"
+            ;;
+    esac
+}
+
 # Build the binary
 build() {
     local platform="$1"
@@ -76,6 +89,7 @@ build() {
     echo "================================================"
 
     ensure_target "$target"
+    setup_cross_env "$platform"
 
     # Build with release profile
     cargo build --release --target "$target" -p protectinator

@@ -79,6 +79,11 @@ pub enum FindingSource {
     PrivilegeEscalation {
         vector_type: String,
     },
+    /// Finding from agent/rootkit detection
+    AgentDetection {
+        agent_type: String,
+        category: String,
+    },
 }
 
 /// Type of file change detected
