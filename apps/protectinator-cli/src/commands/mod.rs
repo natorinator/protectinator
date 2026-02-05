@@ -1,5 +1,7 @@
 //! CLI command implementations
 
+#[cfg(feature = "agents")]
+pub mod agents;
 #[cfg(feature = "fim")]
 pub mod fim;
 #[cfg(feature = "hardening")]

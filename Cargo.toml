@@ -12,6 +12,7 @@ members = [
     "crates/protectinator-procmon",
     "crates/protectinator-yara",
     "crates/protectinator-privesc",
+    "crates/protectinator-agents",
     "apps/protectinator-cli",
 ]
 
@@ -80,6 +81,7 @@ protectinator-persistence = { path = "crates/protectinator-persistence" }
 protectinator-procmon = { path = "crates/protectinator-procmon" }
 protectinator-yara = { path = "crates/protectinator-yara" }
 protectinator-privesc = { path = "crates/protectinator-privesc" }
+protectinator-agents = { path = "crates/protectinator-agents" }
 
 [profile.release]
 lto = "fat"

@@ -1,0 +1,18 @@
+[package]
+name = "protectinator-agents"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rootkit and management software detection for Protectinator"
+
+[dependencies]
+protectinator-core = { workspace = true }
+protectinator-platform = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+walkdir = { workspace = true }
+regex = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["fs", "user"] }

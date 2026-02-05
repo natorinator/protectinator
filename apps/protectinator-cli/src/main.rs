@@ -98,6 +98,18 @@ enum Commands {
     /// - Privilege escalation scanning
     Scan(commands::scan::ScanArgs),
 
+    /// Agent and rootkit detection
+    ///
+    /// Detect rootkits, management agents, and remote access tools:
+    /// - Rootkit indicators (suspicious modules, hidden processes)
+    /// - MDM agents (Jamf, Intune, Kandji)
+    /// - Endpoint security (CrowdStrike, SentinelOne)
+    /// - Remote access (TeamViewer, AnyDesk)
+    /// - Configuration management (Puppet, Chef, Ansible)
+    #[cfg(feature = "agents")]
+    #[command(subcommand)]
+    Agents(commands::agents::AgentsCommands),
+
     /// File integrity monitoring
     ///
     /// Track changes to critical system files and directories.
@@ -196,6 +208,8 @@ fn main() -> anyhow::Result<()> {
 
     let result = match cli.command {
         Commands::Scan(args) => commands::scan::run(args, format_str),
+        #[cfg(feature = "agents")]
+        Commands::Agents(cmd) => commands::agents::run(cmd),
         #[cfg(feature = "fim")]
         Commands::Fim(cmd) => commands::fim::run(cmd),
         #[cfg(feature = "sigma")]
