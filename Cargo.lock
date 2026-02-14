@@ -603,6 +603,7 @@ dependencies = [
  "chrono",
  "clap",
  "protectinator-agents",
+ "protectinator-container",
  "protectinator-core",
  "protectinator-engine",
  "protectinator-fim",
@@ -629,6 +630,18 @@ dependencies = [
  "protectinator-core",
  "protectinator-platform",
  "regex",
+ "serde",
+ "serde_json",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
+name = "protectinator-container"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "protectinator-core",
  "serde",
  "serde_json",
  "tracing",

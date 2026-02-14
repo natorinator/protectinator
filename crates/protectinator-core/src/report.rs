@@ -84,6 +84,12 @@ pub enum FindingSource {
         agent_type: String,
         category: String,
     },
+    /// Finding from container security scan (nspawn, Docker, etc.)
+    Container {
+        container_name: String,
+        container_type: String,
+        inner_source: Box<FindingSource>,
+    },
 }
 
 /// Type of file change detected

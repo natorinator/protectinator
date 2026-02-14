@@ -2,6 +2,8 @@
 
 #[cfg(feature = "agents")]
 pub mod agents;
+#[cfg(feature = "container")]
+pub mod container;
 #[cfg(feature = "fim")]
 pub mod fim;
 #[cfg(feature = "hardening")]

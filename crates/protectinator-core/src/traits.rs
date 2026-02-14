@@ -76,6 +76,23 @@ pub struct CheckConfig {
     pub timeout: Option<std::time::Duration>,
     /// Verbose output
     pub verbose: bool,
+    /// Root prefix for scanning container filesystems from the host.
+    /// When set, all paths are resolved relative to this root (e.g., `/var/lib/machines/mycontainer`).
+    pub root_prefix: Option<std::path::PathBuf>,
+}
+
+impl CheckConfig {
+    /// Resolve a path relative to the root prefix.
+    /// If `root_prefix` is set, the path is joined under it; otherwise the original path is returned.
+    pub fn resolve_path(&self, path: &str) -> std::path::PathBuf {
+        match &self.root_prefix {
+            Some(prefix) => {
+                let stripped = path.strip_prefix('/').unwrap_or(path);
+                prefix.join(stripped)
+            }
+            None => std::path::PathBuf::from(path),
+        }
+    }
 }
 
 /// Context provided to security checks containing system information

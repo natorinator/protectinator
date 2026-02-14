@@ -1,0 +1,32 @@
+{
+  "name": "protectinator",
+  "image": "mcr.microsoft.com/devcontainers/rust:1",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "containerEnv": {
+    "CARGO_TARGET_DIR": "/home/dev/.cargo-target",
+    "RUST_BACKTRACE": "1"
+  },
+  "postCreateCommand": {
+    "musl": "rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl",
+    "components": "rustup component add clippy rustfmt"
+  },
+  "postStartCommand": "cargo check 2>/dev/null || true",
+  "forwardPorts": [],
+  "remoteUser": "dev",
+  "workspaceFolder": "/workspace/protectinator",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy"
+      }
+    }
+  }
+}

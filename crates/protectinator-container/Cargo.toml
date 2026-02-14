@@ -1,0 +1,14 @@
+[package]
+name = "protectinator-container"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Container security scanning for Protectinator (nspawn, Docker)"
+
+[dependencies]
+protectinator-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+walkdir = { workspace = true }
+chrono = { workspace = true }

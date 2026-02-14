@@ -65,6 +65,8 @@ EXAMPLES:
     protectinator harden scan             Check system hardening
     protectinator persistence scan        Find persistence mechanisms
     protectinator privesc scan            Find privilege escalation vectors
+    protectinator container list          List discovered containers
+    protectinator container scan <name>   Scan a container for security issues
     protectinator info                    Show system information
 
 EXIT CODES:
@@ -179,6 +181,19 @@ enum Commands {
     #[command(subcommand)]
     Privesc(commands::privesc::PrivescCommands),
 
+    /// Container security scanner
+    ///
+    /// Scan nspawn containers from the host for security issues:
+    /// - Rootkit indicators
+    /// - Outdated/vulnerable packages
+    /// - Persistence mechanisms
+    /// - OS version (end-of-life)
+    /// - SUID/SGID binary audit
+    /// - Hardening issues
+    #[cfg(feature = "container")]
+    #[command(subcommand)]
+    Container(commands::container::ContainerCommands),
+
     /// Show system information
     ///
     /// Display information about the current system
@@ -226,6 +241,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Yara(cmd) => commands::yara::run(cmd),
         #[cfg(feature = "privesc")]
         Commands::Privesc(cmd) => commands::privesc::run(cmd),
+        #[cfg(feature = "container")]
+        Commands::Container(cmd) => commands::container::run(cmd, format_str),
         Commands::Info => commands::info::run(),
     };
 
