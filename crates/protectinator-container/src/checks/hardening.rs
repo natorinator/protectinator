@@ -100,20 +100,17 @@ fn check_user_accounts(fs: &ContainerFs, findings: &mut Vec<Finding>) {
             Finding::new(
                 "container-hardening-service-shells",
                 format!(
-                    "{} service account(s) with login shells",
-                    service_accounts_with_shells.len()
-                ),
-                format!(
-                    "Service accounts should use /usr/sbin/nologin or /bin/false: {}",
+                    "Service account(s) with login shells: {}",
                     service_accounts_with_shells.join(", ")
                 ),
+                "Service accounts should use /usr/sbin/nologin or /bin/false to prevent interactive login.",
                 Severity::Low,
                 FindingSource::Hardening {
                     check_id: "container-hardening-service-shells".to_string(),
                     category: "accounts".to_string(),
                 },
             )
-            .with_remediation("Set service account shells to /usr/sbin/nologin"),
+            .with_remediation("Set service account shells to /usr/sbin/nologin: usermod -s /usr/sbin/nologin <user>"),
         );
     }
 
