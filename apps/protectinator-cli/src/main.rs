@@ -194,6 +194,26 @@ enum Commands {
     #[command(subcommand)]
     Container(commands::container::ContainerCommands),
 
+    /// IoT / Raspberry Pi security scanner
+    ///
+    /// Scan IoT devices for security issues including:
+    /// - Binary integrity verification (dpkg md5sums)
+    /// - Boot partition integrity (config.txt, cmdline.txt)
+    /// - PAM module audit (backdoor detection)
+    /// - IoT malware signatures (Mirai, Hajime)
+    /// - Default credentials and weak passwords
+    /// - Udev rule persistence
+    /// - MOTD backdoors
+    /// - Network service audit
+    /// - Kernel module integrity
+    /// - Device tree overlay validation
+    ///
+    /// Plus all container checks (packages, rootkit, persistence,
+    /// hardening, SUID, OS version).
+    #[cfg(feature = "iot")]
+    #[command(subcommand)]
+    Iot(commands::iot::IotCommands),
+
     /// Show system information
     ///
     /// Display information about the current system
@@ -243,6 +263,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Privesc(cmd) => commands::privesc::run(cmd),
         #[cfg(feature = "container")]
         Commands::Container(cmd) => commands::container::run(cmd, format_str),
+        #[cfg(feature = "iot")]
+        Commands::Iot(cmd) => commands::iot::run(cmd, format_str),
         Commands::Info => commands::info::run(),
     };
 

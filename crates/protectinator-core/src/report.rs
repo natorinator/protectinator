@@ -90,6 +90,13 @@ pub enum FindingSource {
         container_type: String,
         inner_source: Box<FindingSource>,
     },
+    /// Finding from IoT/Raspberry Pi security scan
+    IoT {
+        device_name: String,
+        device_type: String,
+        scan_mode: String,
+        inner_source: Box<FindingSource>,
+    },
 }
 
 /// Type of file change detected

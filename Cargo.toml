@@ -14,6 +14,7 @@ members = [
     "crates/protectinator-privesc",
     "crates/protectinator-agents",
     "crates/protectinator-container",
+    "crates/protectinator-iot",
     "apps/protectinator-cli",
 ]
 
@@ -84,6 +85,10 @@ protectinator-yara = { path = "crates/protectinator-yara" }
 protectinator-privesc = { path = "crates/protectinator-privesc" }
 protectinator-agents = { path = "crates/protectinator-agents" }
 protectinator-container = { path = "crates/protectinator-container" }
+protectinator-iot = { path = "crates/protectinator-iot" }
+
+# Hashing (dpkg md5sums compatibility)
+md-5 = "0.10"
 
 [profile.release]
 lto = "fat"

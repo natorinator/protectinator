@@ -1,0 +1,22 @@
+[package]
+name = "protectinator-iot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "IoT and Raspberry Pi security scanning for Protectinator"
+
+[dependencies]
+protectinator-core = { workspace = true }
+protectinator-container = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+walkdir = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+regex = { workspace = true }
+rayon = { workspace = true }
+md-5 = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

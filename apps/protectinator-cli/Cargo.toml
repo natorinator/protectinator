@@ -12,7 +12,7 @@ path = "src/main.rs"
 [features]
 default = ["full"]
 # Full feature set
-full = ["fim", "sigma", "hardening", "osverify", "persistence", "procmon", "yara", "privesc", "agents", "container"]
+full = ["fim", "sigma", "hardening", "osverify", "persistence", "procmon", "yara", "privesc", "agents", "container", "iot"]
 # Individual features
 fim = ["protectinator-fim"]
 sigma = ["protectinator-sigma"]
@@ -24,6 +24,7 @@ yara = ["protectinator-yara"]
 privesc = ["protectinator-privesc"]
 agents = ["protectinator-agents"]
 container = ["protectinator-container"]
+iot = ["protectinator-iot"]
 # Minimal build with just core scanning
 minimal = ["hardening", "persistence"]
 
@@ -41,6 +42,7 @@ protectinator-yara = { workspace = true, optional = true }
 protectinator-privesc = { workspace = true, optional = true }
 protectinator-agents = { workspace = true, optional = true }
 protectinator-container = { workspace = true, optional = true }
+protectinator-iot = { workspace = true, optional = true }
 
 clap = { workspace = true }
 serde = { workspace = true }
