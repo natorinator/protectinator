@@ -50,6 +50,25 @@ pub enum SupplyChainCommands {
     /// findings from the sandboxed installation.
     /// Requires gaol to be installed (PATH or ~/.local/bin/gaol).
     Install(SupplyChainInstallArgs),
+
+    /// Generate an SBOM (Software Bill of Materials) in CycloneDX format
+    ///
+    /// Parses lock files and produces a CycloneDX 1.5 JSON SBOM.
+    /// Saves to ~/.local/share/protectinator/sboms/ for cross-repo queries.
+    Sbom(SupplyChainSbomArgs),
+
+    /// Check for new advisories affecting your packages
+    ///
+    /// Queries the OSV database for vulnerabilities in packages from
+    /// stored SBOMs. Only reports advisories not previously seen.
+    /// Run `sbom` first to generate the package inventory.
+    Watch(SupplyChainWatchArgs),
+
+    /// Search for a package across all stored SBOMs
+    ///
+    /// Answers "which of my repos use package X?"
+    #[command(name = "search")]
+    Search(SupplyChainSearchArgs),
 }
 
 #[derive(Args)]
@@ -189,6 +208,46 @@ pub struct SupplyChainInstallArgs {
     ecosystem: Option<ScEcosystem>,
 }
 
+#[derive(Args)]
+pub struct SupplyChainSbomArgs {
+    /// Root filesystem path (default: current directory)
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    /// Save SBOM to the default storage location for cross-repo queries
+    #[arg(long)]
+    save: bool,
+
+    /// Custom output path (instead of stdout)
+    #[arg(long)]
+    output: Option<PathBuf>,
+
+    /// File containing repo paths to generate SBOMs for
+    #[arg(long)]
+    repos_file: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct SupplyChainWatchArgs {
+    /// Only show new (unnotified) advisories
+    #[arg(long)]
+    new_only: bool,
+
+    /// Mark all current advisories as notified after display
+    #[arg(long)]
+    acknowledge: bool,
+
+    /// Show summary statistics only
+    #[arg(long)]
+    summary: bool,
+}
+
+#[derive(Args)]
+pub struct SupplyChainSearchArgs {
+    /// Package name to search for
+    package: String,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ScEcosystem {
     Python,
@@ -245,6 +304,9 @@ pub fn run(cmd: SupplyChainCommands, format: &str) -> anyhow::Result<()> {
         SupplyChainCommands::History(args) => run_history(args, format),
         SupplyChainCommands::Eval(args) => run_eval(args, format),
         SupplyChainCommands::Install(args) => run_install(args, format),
+        SupplyChainCommands::Sbom(args) => run_sbom(args, format),
+        SupplyChainCommands::Watch(args) => run_watch(args, format),
+        SupplyChainCommands::Search(args) => run_search(args, format),
     }
 }
 
@@ -1184,6 +1246,266 @@ fn run_install(args: SupplyChainInstallArgs, format: &str) -> anyhow::Result<()>
             findings.iter().filter(|f| f.severity == Severity::Medium).count(),
             findings.iter().filter(|f| f.severity == Severity::Low).count(),
         );
+    }
+
+    Ok(())
+}
+
+fn run_sbom(args: SupplyChainSbomArgs, format: &str) -> anyhow::Result<()> {
+    let is_json = format == "json";
+
+    // Handle multi-repo SBOM generation
+    if let Some(ref repos_file) = args.repos_file {
+        let content = std::fs::read_to_string(repos_file)
+            .map_err(|e| anyhow::anyhow!("Failed to read repos file: {}", e))?;
+        let repos: Vec<PathBuf> = content
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(|l| {
+                if l.starts_with("~/") {
+                    if let Ok(home) = std::env::var("HOME") {
+                        return PathBuf::from(format!("{}{}", home, &l[1..]));
+                    }
+                }
+                PathBuf::from(l)
+            })
+            .collect();
+
+        if !is_json {
+            println!("Generating SBOMs for {} repos", repos.len());
+            println!();
+        }
+
+        for repo_path in &repos {
+            if !repo_path.exists() {
+                eprintln!("  Skipping {} (not found)", repo_path.display());
+                continue;
+            }
+            let repo_name = repo_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+
+            generate_sbom_for_repo(repo_path, repo_name, args.save, is_json)?;
+        }
+
+        return Ok(());
+    }
+
+    let root = args
+        .root
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+    if !root.exists() {
+        anyhow::bail!("Root path '{}' does not exist.", root.display());
+    }
+
+    let repo_name = root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+
+    let fs = protectinator_container::filesystem::ContainerFs::new(&root);
+    let lock_files = protectinator_supply_chain::lockfile::discover_lock_files(&fs);
+    let mut packages = Vec::new();
+    for lf in &lock_files {
+        packages.extend(protectinator_supply_chain::lockfile::parse_lock_file(&fs, lf));
+    }
+
+    let sbom = protectinator_supply_chain::sbom::generate_cyclonedx(
+        &packages,
+        repo_name,
+        &root.display().to_string(),
+    );
+
+    if args.save {
+        let path = protectinator_supply_chain::sbom::sbom_path_for_repo(repo_name)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        protectinator_supply_chain::sbom::save_sbom(&sbom, &path)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        if !is_json {
+            println!("  \x1b[32m✓\x1b[0m {} — {} packages, saved to {}", repo_name, packages.len(), path.display());
+        }
+    }
+
+    if let Some(ref output) = args.output {
+        std::fs::write(output, serde_json::to_string_pretty(&sbom)?)
+            .map_err(|e| anyhow::anyhow!("Failed to write SBOM: {}", e))?;
+        if !is_json {
+            println!("  SBOM written to {}", output.display());
+        }
+    } else if !args.save || is_json {
+        println!("{}", serde_json::to_string_pretty(&sbom)?);
+    }
+
+    Ok(())
+}
+
+fn generate_sbom_for_repo(
+    root: &Path,
+    repo_name: &str,
+    save: bool,
+    is_json: bool,
+) -> anyhow::Result<()> {
+    let fs = protectinator_container::filesystem::ContainerFs::new(root);
+    let lock_files = protectinator_supply_chain::lockfile::discover_lock_files(&fs);
+    let mut packages = Vec::new();
+    for lf in &lock_files {
+        packages.extend(protectinator_supply_chain::lockfile::parse_lock_file(&fs, lf));
+    }
+
+    let sbom = protectinator_supply_chain::sbom::generate_cyclonedx(
+        &packages,
+        repo_name,
+        &root.display().to_string(),
+    );
+
+    if save {
+        let path = protectinator_supply_chain::sbom::sbom_path_for_repo(repo_name)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        protectinator_supply_chain::sbom::save_sbom(&sbom, &path)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        if !is_json {
+            println!(
+                "  \x1b[32m✓\x1b[0m {} — {} packages, saved",
+                repo_name,
+                packages.len()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn run_watch(args: SupplyChainWatchArgs, format: &str) -> anyhow::Result<()> {
+    let is_json = format == "json";
+
+    let monitor = protectinator_supply_chain::feed::FeedMonitor::open_default()
+        .map_err(|e| anyhow::anyhow!("Failed to open feed monitor: {}", e))?;
+
+    if args.summary {
+        let summary = monitor
+            .summary()
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        if is_json {
+            println!("{}", serde_json::to_string_pretty(&summary)?);
+        } else {
+            println!("Advisory Feed Summary");
+            println!("=====================");
+            println!("  Total advisories: {}", summary.total_advisories);
+            println!("  Unnotified:       {}", summary.unnotified);
+            if !summary.by_severity.is_empty() {
+                println!("  By severity:");
+                for (sev, count) in &summary.by_severity {
+                    println!("    {}: {}", sev, count);
+                }
+            }
+            if !summary.by_ecosystem.is_empty() {
+                println!("  By ecosystem:");
+                for (eco, count) in &summary.by_ecosystem {
+                    println!("    {}: {}", eco, count);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    if !is_json {
+        println!("Checking advisory feeds...");
+        println!();
+    }
+
+    let result = monitor
+        .check_feeds()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if is_json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        println!(
+            "  Repos: {}, Packages: {}, Known advisories: {}",
+            result.repos_checked, result.packages_checked, result.total_known_advisories
+        );
+        println!();
+
+        if result.new_advisories.is_empty() {
+            println!("  \x1b[32m✓\x1b[0m No new advisories");
+        } else {
+            println!(
+                "  \x1b[91mNEW ADVISORIES\x1b[0m ({}):",
+                result.new_advisories.len()
+            );
+            for adv in &result.new_advisories {
+                let sev_color = match adv.severity.as_str() {
+                    "critical" => "\x1b[91m",
+                    "high" => "\x1b[93m",
+                    "medium" => "\x1b[33m",
+                    _ => "\x1b[36m",
+                };
+                println!(
+                    "    {}[{}]\x1b[0m {} {}@{}",
+                    sev_color, adv.severity, adv.advisory_id, adv.package_name, adv.package_version
+                );
+                if let Some(ref summary) = adv.summary {
+                    println!("      {}", summary);
+                }
+                println!("      Repo: {}", adv.repo_name);
+                if !adv.aliases.is_empty() {
+                    println!("      Aliases: {}", adv.aliases.join(", "));
+                }
+            }
+        }
+        println!();
+    }
+
+    if args.acknowledge && !result.new_advisories.is_empty() {
+        let ids: Vec<String> = result
+            .new_advisories
+            .iter()
+            .map(|a| a.advisory_id.clone())
+            .collect();
+        monitor
+            .mark_notified(&ids)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        if !is_json {
+            println!(
+                "  Marked {} advisories as acknowledged",
+                ids.len()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn run_search(args: SupplyChainSearchArgs, format: &str) -> anyhow::Result<()> {
+    let is_json = format == "json";
+
+    let matches = protectinator_supply_chain::sbom::search_package(&args.package)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if is_json {
+        println!("{}", serde_json::to_string_pretty(&matches)?);
+    } else if matches.is_empty() {
+        println!("No repos found containing '{}'", args.package);
+        println!();
+        println!("Tip: Run 'supply-chain sbom --save' on your repos first.");
+    } else {
+        println!(
+            "Repos containing '{}' ({} match{}):",
+            args.package,
+            matches.len(),
+            if matches.len() == 1 { "" } else { "es" }
+        );
+        println!();
+        for m in &matches {
+            println!(
+                "  {} — {}@{} ({})",
+                m.repo_name, m.package_name, m.version, m.ecosystem
+            );
+        }
     }
 
     Ok(())

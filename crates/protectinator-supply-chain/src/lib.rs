@@ -16,11 +16,13 @@
 //! ```
 
 pub mod checks;
+pub mod feed;
 pub mod gaol;
 pub mod history;
 pub mod lockfile;
 pub mod osv;
 pub mod pin;
+pub mod sbom;
 pub mod scanner;
 pub mod types;
 
