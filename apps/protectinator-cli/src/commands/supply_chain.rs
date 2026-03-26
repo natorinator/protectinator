@@ -46,13 +46,29 @@ pub struct SupplyChainScanArgs {
     #[arg(long)]
     skip_osv: bool,
 
-    /// Skip IOC detection (pth injection, shell profile)
+    /// Skip IOC detection (pth injection, shell profile, user systemd)
     #[arg(long)]
     skip_ioc: bool,
 
     /// Skip lock file discovery and parsing
     #[arg(long)]
     skip_lockfile: bool,
+
+    /// Skip npm postinstall script audit
+    #[arg(long)]
+    skip_npm_postinstall: bool,
+
+    /// Skip pip build hook inspection
+    #[arg(long)]
+    skip_pip_build_hooks: bool,
+
+    /// Skip user systemd service audit
+    #[arg(long)]
+    skip_user_systemd: bool,
+
+    /// Skip lock file git integrity check
+    #[arg(long)]
+    skip_lockfile_integrity: bool,
 }
 
 #[derive(Args)]
@@ -123,6 +139,10 @@ fn run_scan(args: SupplyChainScanArgs, format: &str) -> anyhow::Result<()> {
         .skip_osv(args.skip_osv)
         .skip_ioc(args.skip_ioc)
         .skip_lockfile(args.skip_lockfile)
+        .skip_npm_postinstall(args.skip_npm_postinstall)
+        .skip_pip_build_hooks(args.skip_pip_build_hooks)
+        .skip_user_systemd(args.skip_user_systemd)
+        .skip_lockfile_integrity(args.skip_lockfile_integrity)
         .ecosystem(args.ecosystem.map(|e| e.as_str().to_string()));
 
     let start = Instant::now();

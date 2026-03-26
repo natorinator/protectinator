@@ -6,7 +6,11 @@
 pub mod cargo_lock;
 pub mod npm_lock;
 pub mod pipfile_lock;
+pub mod pnpm_lock;
+pub mod poetry_lock;
 pub mod requirements_txt;
+pub mod uv_lock;
+pub mod yarn_lock;
 
 use crate::types::{DiscoveredLockFile, Ecosystem, LockFileFormat, PackageEntry};
 use protectinator_container::filesystem::ContainerFs;
@@ -92,21 +96,9 @@ pub fn parse_lock_file(_fs: &ContainerFs, lock_file: &DiscoveredLockFile) -> Vec
         LockFileFormat::PackageLockJson => npm_lock::parse(&content),
         LockFileFormat::RequirementsTxt => requirements_txt::parse(&content),
         LockFileFormat::PipfileLock => pipfile_lock::parse(&content),
-        LockFileFormat::PoetryLock | LockFileFormat::UvLock => {
-            tracing::warn!(
-                "Parser for {:?} not yet implemented, skipping {}",
-                lock_file.format,
-                path_str
-            );
-            Vec::new()
-        }
-        LockFileFormat::YarnLock | LockFileFormat::PnpmLock => {
-            tracing::warn!(
-                "Parser for {:?} not yet implemented, skipping {}",
-                lock_file.format,
-                path_str
-            );
-            Vec::new()
-        }
+        LockFileFormat::PoetryLock => poetry_lock::parse(&content),
+        LockFileFormat::UvLock => uv_lock::parse(&content),
+        LockFileFormat::YarnLock => yarn_lock::parse(&content),
+        LockFileFormat::PnpmLock => pnpm_lock::parse(&content),
     }
 }

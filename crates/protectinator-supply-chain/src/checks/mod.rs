@@ -3,8 +3,12 @@
 //! Each module implements a check targeting specific supply chain
 //! attack vectors.
 
+pub mod lockfile_integrity;
+pub mod npm_postinstall;
+pub mod pip_build_hooks;
 pub mod pth_injection;
 pub mod shell_profile;
+pub mod user_systemd;
 pub mod vulnerability;
 
 use crate::types::SupplyChainContext;

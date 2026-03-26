@@ -3,8 +3,12 @@
 //! Coordinates running all supply chain security checks, including
 //! lock file discovery, package parsing, and check execution.
 
+use crate::checks::lockfile_integrity::LockfileIntegrityCheck;
+use crate::checks::npm_postinstall::NpmPostinstallCheck;
+use crate::checks::pip_build_hooks::PipBuildHooksCheck;
 use crate::checks::pth_injection::PthInjectionCheck;
 use crate::checks::shell_profile::ShellProfileCheck;
+use crate::checks::user_systemd::UserSystemdCheck;
 use crate::checks::vulnerability::VulnerabilityCheck;
 use crate::checks::SupplyChainCheck;
 use crate::lockfile;
@@ -22,6 +26,10 @@ pub struct SupplyChainScanner {
     skip_osv: bool,
     skip_ioc: bool,
     skip_lockfile: bool,
+    skip_npm_postinstall: bool,
+    skip_pip_build_hooks: bool,
+    skip_user_systemd: bool,
+    skip_lockfile_integrity: bool,
     ecosystem_filter: Option<String>,
 }
 
@@ -34,6 +42,10 @@ impl SupplyChainScanner {
             skip_osv: false,
             skip_ioc: false,
             skip_lockfile: false,
+            skip_npm_postinstall: false,
+            skip_pip_build_hooks: false,
+            skip_user_systemd: false,
+            skip_lockfile_integrity: false,
             ecosystem_filter: None,
         }
     }
@@ -55,6 +67,26 @@ impl SupplyChainScanner {
 
     pub fn skip_lockfile(mut self, skip: bool) -> Self {
         self.skip_lockfile = skip;
+        self
+    }
+
+    pub fn skip_npm_postinstall(mut self, skip: bool) -> Self {
+        self.skip_npm_postinstall = skip;
+        self
+    }
+
+    pub fn skip_pip_build_hooks(mut self, skip: bool) -> Self {
+        self.skip_pip_build_hooks = skip;
+        self
+    }
+
+    pub fn skip_user_systemd(mut self, skip: bool) -> Self {
+        self.skip_user_systemd = skip;
+        self
+    }
+
+    pub fn skip_lockfile_integrity(mut self, skip: bool) -> Self {
+        self.skip_lockfile_integrity = skip;
         self
     }
 
@@ -187,6 +219,20 @@ impl SupplyChainScanner {
         if !self.skip_ioc {
             checks.push(Box::new(PthInjectionCheck));
             checks.push(Box::new(ShellProfileCheck));
+            if !self.skip_user_systemd {
+                checks.push(Box::new(UserSystemdCheck));
+            }
+        }
+
+        // Phase 2 — Package manager deep inspection
+        if !self.skip_npm_postinstall {
+            checks.push(Box::new(NpmPostinstallCheck));
+        }
+        if !self.skip_pip_build_hooks {
+            checks.push(Box::new(PipBuildHooksCheck));
+        }
+        if !self.skip_lockfile_integrity {
+            checks.push(Box::new(LockfileIntegrityCheck));
         }
 
         checks
