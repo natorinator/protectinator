@@ -7,7 +7,7 @@
 use clap::{Args, Subcommand, ValueEnum};
 use protectinator_core::Severity;
 use protectinator_supply_chain::SupplyChainScanner;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Subcommand)]
@@ -39,8 +39,12 @@ pub enum SupplyChainCommands {
 #[derive(Args)]
 pub struct SupplyChainScanArgs {
     /// Root filesystem path (default: current directory)
-    #[arg(long)]
+    #[arg(long, group = "target")]
     root: Option<PathBuf>,
+
+    /// File containing repo paths to scan (one per line)
+    #[arg(long, group = "target")]
+    repos_file: Option<PathBuf>,
 
     /// Run in offline mode (skip OSV API queries)
     #[arg(long)]
@@ -193,29 +197,22 @@ pub fn run(cmd: SupplyChainCommands, format: &str) -> anyhow::Result<()> {
 }
 
 fn run_scan(args: SupplyChainScanArgs, format: &str) -> anyhow::Result<()> {
+    // Multi-repo mode
+    if let Some(ref repos_file) = args.repos_file {
+        return run_multi_scan(&args, repos_file, format);
+    }
+
     let is_json = format == "json";
     let root = args
         .root
+        .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")));
 
     if !root.exists() {
         anyhow::bail!("Root path '{}' does not exist.", root.display());
     }
 
-    let scanner = SupplyChainScanner::new(root.clone())
-        .offline(args.offline)
-        .skip_osv(args.skip_osv)
-        .skip_ioc(args.skip_ioc)
-        .skip_lockfile(args.skip_lockfile)
-        .skip_npm_postinstall(args.skip_npm_postinstall)
-        .skip_pip_build_hooks(args.skip_pip_build_hooks)
-        .skip_user_systemd(args.skip_user_systemd)
-        .skip_lockfile_integrity(args.skip_lockfile_integrity)
-        .skip_cicd(args.skip_cicd)
-        .skip_malware(args.skip_malware)
-        .skip_registry(args.skip_registry)
-        .skip_secrets(args.skip_secrets)
-        .ecosystem(args.ecosystem.map(|e| e.as_str().to_string()));
+    let scanner = build_scanner(root.clone(), &args);
 
     let start = Instant::now();
 
@@ -420,6 +417,259 @@ fn run_scan(args: SupplyChainScanArgs, format: &str) -> anyhow::Result<()> {
             results.scan_results.summary.findings_by_severity.get(&Severity::Info).unwrap_or(&0),
             duration
         );
+        println!();
+    }
+
+    Ok(())
+}
+
+fn build_scanner(root: PathBuf, args: &SupplyChainScanArgs) -> SupplyChainScanner {
+    SupplyChainScanner::new(root)
+        .offline(args.offline)
+        .skip_osv(args.skip_osv)
+        .skip_ioc(args.skip_ioc)
+        .skip_lockfile(args.skip_lockfile)
+        .skip_npm_postinstall(args.skip_npm_postinstall)
+        .skip_pip_build_hooks(args.skip_pip_build_hooks)
+        .skip_user_systemd(args.skip_user_systemd)
+        .skip_lockfile_integrity(args.skip_lockfile_integrity)
+        .skip_cicd(args.skip_cicd)
+        .skip_malware(args.skip_malware)
+        .skip_registry(args.skip_registry)
+        .skip_secrets(args.skip_secrets)
+        .ecosystem(args.ecosystem.map(|e| e.as_str().to_string()))
+}
+
+fn run_multi_scan(
+    args: &SupplyChainScanArgs,
+    repos_file: &Path,
+    format: &str,
+) -> anyhow::Result<()> {
+    let is_json = format == "json";
+    let content = std::fs::read_to_string(repos_file)
+        .map_err(|e| anyhow::anyhow!("Failed to read repos file: {}", e))?;
+
+    let repos: Vec<PathBuf> = content
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            // Expand ~ to home directory
+            if l.starts_with("~/") {
+                if let Ok(home) = std::env::var("HOME") {
+                    return PathBuf::from(format!("{}{}", home, &l[1..]));
+                }
+            }
+            PathBuf::from(l)
+        })
+        .collect();
+
+    if repos.is_empty() {
+        anyhow::bail!("No repos found in {}", repos_file.display());
+    }
+
+    let min_severity: Severity = args.min_severity.into();
+    let should_diff = args.diff;
+    let should_save = args.save || args.diff;
+
+    let db = if should_save || should_diff {
+        Some(
+            protectinator_supply_chain::history::ScanHistory::open_default()
+                .map_err(|e| anyhow::anyhow!("Failed to open history database: {}", e))?,
+        )
+    } else {
+        None
+    };
+
+    let start = Instant::now();
+
+    if !is_json {
+        println!("Multi-Repo Supply Chain Scan");
+        println!("===========================");
+        println!("  Repos file: {}", repos_file.display());
+        println!("  Repos:      {}", repos.len());
+        println!("  Online:     {}", !args.offline);
+        if should_diff {
+            println!("  Mode:       diff (only new findings)");
+        }
+        println!();
+    }
+
+    // Aggregate stats
+    let mut total_repos_scanned = 0usize;
+    let mut total_packages = 0usize;
+    let mut total_findings = 0usize;
+    let mut total_new = 0usize;
+    let mut total_resolved = 0usize;
+    let mut repos_with_new_findings = 0usize;
+    let mut json_results: Vec<serde_json::Value> = Vec::new();
+
+    for repo_path in &repos {
+        if !repo_path.exists() {
+            if !is_json {
+                eprintln!(
+                    "  \x1b[91mSkipping\x1b[0m {} (does not exist)",
+                    repo_path.display()
+                );
+            }
+            continue;
+        }
+
+        let repo_name = repo_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+
+        let scanner = build_scanner(repo_path.clone(), args);
+        let results = scanner.scan();
+        total_repos_scanned += 1;
+        total_packages += results.packages_scanned;
+        total_findings += results.scan_results.findings.len();
+
+        let repo_key = repo_path
+            .canonicalize()
+            .unwrap_or(repo_path.clone())
+            .display()
+            .to_string();
+
+        if should_diff {
+            let db = db.as_ref().unwrap();
+            let diff = db
+                .diff(&repo_key, &results.scan_results.findings)
+                .map_err(|e| anyhow::anyhow!("Diff failed for {}: {}", repo_name, e))?;
+
+            db.store_scan(
+                &repo_key,
+                &results.scan_results.findings,
+                results.packages_scanned,
+            )
+            .map_err(|e| anyhow::anyhow!("Save failed for {}: {}", repo_name, e))?;
+
+            let new_filtered: Vec<_> = diff
+                .new_findings
+                .iter()
+                .filter(|f| f.severity >= min_severity)
+                .collect();
+
+            total_new += diff.new_findings.len();
+            total_resolved += diff.resolved_findings.len();
+
+            if is_json {
+                json_results.push(serde_json::json!({
+                    "repo": repo_key,
+                    "name": repo_name,
+                    "packages": results.packages_scanned,
+                    "total_findings": results.scan_results.findings.len(),
+                    "new_findings": diff.new_findings.len(),
+                    "resolved_findings": diff.resolved_findings.len(),
+                    "new": diff.new_findings,
+                    "resolved": diff.resolved_findings,
+                }));
+            } else if !new_filtered.is_empty() || !diff.resolved_findings.is_empty() {
+                repos_with_new_findings += 1;
+                println!(
+                    "  \x1b[1m{}\x1b[0m ({} pkgs, {} total findings)",
+                    repo_name, results.packages_scanned, results.scan_results.findings.len()
+                );
+
+                for f in &new_filtered {
+                    println!(
+                        "    {} \x1b[91mNEW\x1b[0m [{}] {}",
+                        severity_bullet(f.severity),
+                        f.severity,
+                        f.title
+                    );
+                }
+                for f in &diff.resolved_findings {
+                    println!("    \x1b[32m✓ RESOLVED\x1b[0m [{}] {}", f.severity, f.title);
+                }
+                println!();
+            } else if !is_json {
+                println!(
+                    "  \x1b[32m✓\x1b[0m {} — no changes ({} pkgs)",
+                    repo_name, results.packages_scanned
+                );
+            }
+        } else {
+            // Non-diff mode
+            let filtered: Vec<_> = results
+                .scan_results
+                .findings
+                .iter()
+                .filter(|f| f.severity >= min_severity)
+                .collect();
+
+            if should_save {
+                if let Some(ref db) = db {
+                    let _ = db.store_scan(
+                        &repo_key,
+                        &results.scan_results.findings,
+                        results.packages_scanned,
+                    );
+                }
+            }
+
+            if is_json {
+                json_results.push(serde_json::json!({
+                    "repo": repo_key,
+                    "name": repo_name,
+                    "packages": results.packages_scanned,
+                    "ecosystems": results.ecosystems,
+                    "findings": results.scan_results.findings,
+                }));
+            } else {
+                let c = filtered.iter().filter(|f| f.severity == Severity::Critical).count();
+                let h = filtered.iter().filter(|f| f.severity == Severity::High).count();
+                let m = filtered.iter().filter(|f| f.severity == Severity::Medium).count();
+                let l = filtered.iter().filter(|f| f.severity == Severity::Low).count();
+
+                let status = if c > 0 || h > 0 {
+                    format!("\x1b[91mC:{} H:{}\x1b[0m M:{} L:{}", c, h, m, l)
+                } else if m > 0 {
+                    format!("C:0 H:0 \x1b[33mM:{}\x1b[0m L:{}", m, l)
+                } else {
+                    format!("\x1b[32m✓\x1b[0m C:0 H:0 M:{} L:{}", m, l)
+                };
+
+                println!(
+                    "  {:<30} {:>5} pkgs  {}",
+                    repo_name, results.packages_scanned, status
+                );
+            }
+        }
+    }
+
+    let duration = start.elapsed();
+
+    if is_json {
+        let json = serde_json::json!({
+            "repos_scanned": total_repos_scanned,
+            "total_packages": total_packages,
+            "total_findings": total_findings,
+            "total_new": total_new,
+            "total_resolved": total_resolved,
+            "duration_ms": duration.as_millis(),
+            "repos": json_results,
+        });
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    } else {
+        println!();
+        println!("  ─────────────────────────────────────────");
+        if should_diff {
+            println!(
+                "  {} repos scanned, {} packages, {} total findings",
+                total_repos_scanned, total_packages, total_findings
+            );
+            println!(
+                "  {} new, {} resolved across {} repo(s) with changes",
+                total_new, total_resolved, repos_with_new_findings
+            );
+        } else {
+            println!(
+                "  {} repos scanned, {} packages, {} findings in {:?}",
+                total_repos_scanned, total_packages, total_findings, duration
+            );
+        }
         println!();
     }
 
