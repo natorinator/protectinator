@@ -28,6 +28,12 @@ pub enum SupplyChainCommands {
     /// Resolves mutable action references (tags/branches) to commit SHAs
     /// and rewrites workflow files in place. Prevents tag-rewriting attacks.
     Pin(SupplyChainPinArgs),
+
+    /// Show scan history for a repo
+    ///
+    /// Lists previous scans with finding counts and timestamps.
+    /// Use to track how findings change over time.
+    History(SupplyChainHistoryArgs),
 }
 
 #[derive(Args)]
@@ -39,6 +45,14 @@ pub struct SupplyChainScanArgs {
     /// Run in offline mode (skip OSV API queries)
     #[arg(long)]
     offline: bool,
+
+    /// Show only new findings since the last scan (diff mode)
+    #[arg(long)]
+    diff: bool,
+
+    /// Save scan results to history database (enabled automatically with --diff)
+    #[arg(long)]
+    save: bool,
 
     /// Minimum severity to report
     #[arg(long, value_enum, default_value_t = ScMinSeverity::Low)]
@@ -111,6 +125,25 @@ pub struct SupplyChainPinArgs {
     dry_run: bool,
 }
 
+#[derive(Args)]
+pub struct SupplyChainHistoryArgs {
+    /// Root filesystem path (to identify the repo in history)
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    /// Number of scans to show
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+
+    /// List all repos that have been scanned
+    #[arg(long)]
+    repos: bool,
+
+    /// Prune old scans, keeping N most recent per repo
+    #[arg(long)]
+    prune: Option<usize>,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ScEcosystem {
     Python,
@@ -155,6 +188,7 @@ pub fn run(cmd: SupplyChainCommands, format: &str) -> anyhow::Result<()> {
         SupplyChainCommands::Scan(args) => run_scan(args, format),
         SupplyChainCommands::Detect(args) => run_detect(args, format),
         SupplyChainCommands::Pin(args) => run_pin(args, format),
+        SupplyChainCommands::History(args) => run_history(args, format),
     }
 }
 
@@ -196,7 +230,131 @@ fn run_scan(args: SupplyChainScanArgs, format: &str) -> anyhow::Result<()> {
     let results = scanner.scan();
     let duration = start.elapsed();
 
+    let repo_key = root.canonicalize().unwrap_or(root.clone())
+        .display().to_string();
+    let should_save = args.save || args.diff;
     let min_severity: Severity = args.min_severity.into();
+
+    // Handle diff mode
+    if args.diff {
+        let db = protectinator_supply_chain::history::ScanHistory::open_default()
+            .map_err(|e| anyhow::anyhow!("Failed to open history database: {}", e))?;
+
+        let diff = db
+            .diff(&repo_key, &results.scan_results.findings)
+            .map_err(|e| anyhow::anyhow!("Failed to compute diff: {}", e))?;
+
+        // Save current scan
+        db.store_scan(
+            &repo_key,
+            &results.scan_results.findings,
+            results.packages_scanned,
+        )
+        .map_err(|e| anyhow::anyhow!("Failed to save scan: {}", e))?;
+
+        if is_json {
+            let json = serde_json::json!({
+                "has_baseline": diff.has_baseline,
+                "baseline_timestamp": diff.baseline_timestamp,
+                "new_findings": diff.new_findings.len(),
+                "resolved_findings": diff.resolved_findings.len(),
+                "total_findings": results.scan_results.findings.len(),
+                "packages_scanned": results.packages_scanned,
+                "new": diff.new_findings,
+                "resolved": diff.resolved_findings,
+            });
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        } else {
+            if !results.ecosystems.is_empty() {
+                println!("  Ecosystems: {}", results.ecosystems.join(", "));
+            }
+            println!(
+                "  Lock files: {}, Packages: {}",
+                results.lock_files_found, results.packages_scanned
+            );
+
+            if let Some(ref ts) = diff.baseline_timestamp {
+                println!("  Baseline:   {}", ts);
+            } else {
+                println!("  Baseline:   none (first scan)");
+            }
+            println!();
+
+            if diff.new_findings.is_empty() && diff.resolved_findings.is_empty() {
+                println!("  No changes since last scan.");
+            } else {
+                if !diff.new_findings.is_empty() {
+                    let new_filtered: Vec<_> = diff
+                        .new_findings
+                        .iter()
+                        .filter(|f| f.severity >= min_severity)
+                        .collect();
+
+                    if !new_filtered.is_empty() {
+                        println!(
+                            "  \x1b[91mNEW FINDINGS\x1b[0m ({}):",
+                            new_filtered.len()
+                        );
+                        for f in &new_filtered {
+                            println!(
+                                "    {} [{}] {}",
+                                severity_bullet(f.severity),
+                                f.severity,
+                                f.title
+                            );
+                            if let Some(ref r) = f.resource {
+                                println!("      Resource: {}", r);
+                            }
+                            if let Some(ref rem) = f.remediation {
+                                println!("      Fix: {}", rem);
+                            }
+                        }
+                        println!();
+                    }
+                }
+
+                if !diff.resolved_findings.is_empty() {
+                    println!(
+                        "  \x1b[32mRESOLVED\x1b[0m ({}):",
+                        diff.resolved_findings.len()
+                    );
+                    for f in &diff.resolved_findings {
+                        println!("    \x1b[32m✓\x1b[0m [{}] {}", f.severity, f.title);
+                    }
+                    println!();
+                }
+            }
+
+            println!(
+                "  Total: {} findings ({} new, {} resolved) in {:?}",
+                results.scan_results.findings.len(),
+                diff.new_findings.len(),
+                diff.resolved_findings.len(),
+                duration
+            );
+            println!();
+        }
+
+        return Ok(());
+    }
+
+    // Save if requested (without diff)
+    if should_save {
+        match protectinator_supply_chain::history::ScanHistory::open_default() {
+            Ok(db) => {
+                if let Err(e) = db.store_scan(
+                    &repo_key,
+                    &results.scan_results.findings,
+                    results.packages_scanned,
+                ) {
+                    eprintln!("Warning: failed to save scan history: {}", e);
+                }
+            }
+            Err(e) => eprintln!("Warning: failed to open history database: {}", e),
+        }
+    }
+
+    // Normal output (non-diff)
     let filtered_findings: Vec<_> = results
         .scan_results
         .findings
@@ -255,36 +413,11 @@ fn run_scan(args: SupplyChainScanArgs, format: &str) -> anyhow::Result<()> {
         println!(
             "  Summary: {} findings (C:{} H:{} M:{} L:{} I:{}) in {:?}",
             filtered_findings.len(),
-            results
-                .scan_results
-                .summary
-                .findings_by_severity
-                .get(&Severity::Critical)
-                .unwrap_or(&0),
-            results
-                .scan_results
-                .summary
-                .findings_by_severity
-                .get(&Severity::High)
-                .unwrap_or(&0),
-            results
-                .scan_results
-                .summary
-                .findings_by_severity
-                .get(&Severity::Medium)
-                .unwrap_or(&0),
-            results
-                .scan_results
-                .summary
-                .findings_by_severity
-                .get(&Severity::Low)
-                .unwrap_or(&0),
-            results
-                .scan_results
-                .summary
-                .findings_by_severity
-                .get(&Severity::Info)
-                .unwrap_or(&0),
+            results.scan_results.summary.findings_by_severity.get(&Severity::Critical).unwrap_or(&0),
+            results.scan_results.summary.findings_by_severity.get(&Severity::High).unwrap_or(&0),
+            results.scan_results.summary.findings_by_severity.get(&Severity::Medium).unwrap_or(&0),
+            results.scan_results.summary.findings_by_severity.get(&Severity::Low).unwrap_or(&0),
+            results.scan_results.summary.findings_by_severity.get(&Severity::Info).unwrap_or(&0),
             duration
         );
         println!();
@@ -480,4 +613,142 @@ fn color_bullet(severity: &str) -> &'static str {
         "LOW" => "\x1b[36m●\x1b[0m",
         _ => "\x1b[90m●\x1b[0m",
     }
+}
+
+fn severity_bullet(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Critical => "\x1b[91m●\x1b[0m",
+        Severity::High => "\x1b[93m●\x1b[0m",
+        Severity::Medium => "\x1b[33m●\x1b[0m",
+        Severity::Low => "\x1b[36m●\x1b[0m",
+        Severity::Info => "\x1b[90m●\x1b[0m",
+    }
+}
+
+fn run_history(args: SupplyChainHistoryArgs, format: &str) -> anyhow::Result<()> {
+    let is_json = format == "json";
+    let db = protectinator_supply_chain::history::ScanHistory::open_default()
+        .map_err(|e| anyhow::anyhow!("Failed to open history database: {}", e))?;
+
+    // Handle prune
+    if let Some(keep) = args.prune {
+        let deleted = db
+            .prune(keep)
+            .map_err(|e| anyhow::anyhow!("Failed to prune: {}", e))?;
+        if is_json {
+            println!("{}", serde_json::json!({ "pruned": deleted }));
+        } else {
+            println!("Pruned {} old scan(s)", deleted);
+        }
+        return Ok(());
+    }
+
+    // List repos
+    if args.repos {
+        let repos = db
+            .list_repos()
+            .map_err(|e| anyhow::anyhow!("Failed to list repos: {}", e))?;
+
+        if is_json {
+            println!("{}", serde_json::to_string_pretty(&repos)?);
+        } else {
+            if repos.is_empty() {
+                println!("No scan history found. Run a scan with --save or --diff first.");
+            } else {
+                println!("Scanned Repositories");
+                println!("====================");
+                for repo in &repos {
+                    let latest = db.latest_scan(repo).ok().flatten();
+                    if let Some(scan) = latest {
+                        println!(
+                            "  {} (last: {}, C:{} H:{} M:{} L:{})",
+                            repo, scan.scanned_at, scan.critical, scan.high, scan.medium, scan.low
+                        );
+                    } else {
+                        println!("  {}", repo);
+                    }
+                }
+                println!();
+                println!("  {} repo(s)", repos.len());
+            }
+        }
+        return Ok(());
+    }
+
+    // List scans for a specific repo
+    let root = args
+        .root
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let repo_key = root
+        .canonicalize()
+        .unwrap_or(root.clone())
+        .display()
+        .to_string();
+
+    let scans = db
+        .list_scans(&repo_key, args.limit)
+        .map_err(|e| anyhow::anyhow!("Failed to list scans: {}", e))?;
+
+    if is_json {
+        println!("{}", serde_json::to_string_pretty(&scans)?);
+    } else {
+        if scans.is_empty() {
+            println!("No scan history for {}", repo_key);
+            println!("Run a scan with --save or --diff to start tracking.");
+        } else {
+            println!("Scan History: {}", repo_key);
+            println!("{}", "=".repeat(60));
+            println!();
+            println!(
+                "  {:<24} {:<6} {:<4} {:<4} {:<4} {:<4} {:<6}",
+                "TIMESTAMP", "PKGS", "C", "H", "M", "L", "TOTAL"
+            );
+            println!(
+                "  {:<24} {:<6} {:<4} {:<4} {:<4} {:<4} {:<6}",
+                "────────────────────────",
+                "──────",
+                "────",
+                "────",
+                "────",
+                "────",
+                "──────"
+            );
+
+            for scan in &scans {
+                // Truncate timestamp for display
+                let ts = if scan.scanned_at.len() > 19 {
+                    &scan.scanned_at[..19]
+                } else {
+                    &scan.scanned_at
+                };
+
+                let c_str = if scan.critical > 0 {
+                    format!("\x1b[91m{}\x1b[0m", scan.critical)
+                } else {
+                    "0".to_string()
+                };
+                let h_str = if scan.high > 0 {
+                    format!("\x1b[93m{}\x1b[0m", scan.high)
+                } else {
+                    "0".to_string()
+                };
+
+                println!(
+                    "  {:<24} {:<6} {:<14} {:<14} {:<4} {:<4} {:<6}",
+                    ts,
+                    scan.packages_scanned,
+                    c_str,
+                    h_str,
+                    scan.medium,
+                    scan.low,
+                    scan.total_findings
+                );
+            }
+
+            println!();
+            println!("  {} scan(s) shown", scans.len());
+        }
+    }
+
+    Ok(())
 }
