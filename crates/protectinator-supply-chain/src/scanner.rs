@@ -3,10 +3,14 @@
 //! Coordinates running all supply chain security checks, including
 //! lock file discovery, package parsing, and check execution.
 
+use crate::checks::cicd_actions::CicdActionsCheck;
+use crate::checks::cicd_secrets::CicdSecretsCheck;
 use crate::checks::lockfile_integrity::LockfileIntegrityCheck;
+use crate::checks::malware_signatures::MalwareSignaturesCheck;
 use crate::checks::npm_postinstall::NpmPostinstallCheck;
 use crate::checks::pip_build_hooks::PipBuildHooksCheck;
 use crate::checks::pth_injection::PthInjectionCheck;
+use crate::checks::registry_audit::RegistryAuditCheck;
 use crate::checks::shell_profile::ShellProfileCheck;
 use crate::checks::user_systemd::UserSystemdCheck;
 use crate::checks::vulnerability::VulnerabilityCheck;
@@ -30,6 +34,10 @@ pub struct SupplyChainScanner {
     skip_pip_build_hooks: bool,
     skip_user_systemd: bool,
     skip_lockfile_integrity: bool,
+    skip_cicd: bool,
+    skip_malware: bool,
+    skip_registry: bool,
+    skip_secrets: bool,
     ecosystem_filter: Option<String>,
 }
 
@@ -46,6 +54,10 @@ impl SupplyChainScanner {
             skip_pip_build_hooks: false,
             skip_user_systemd: false,
             skip_lockfile_integrity: false,
+            skip_cicd: false,
+            skip_malware: false,
+            skip_registry: false,
+            skip_secrets: false,
             ecosystem_filter: None,
         }
     }
@@ -87,6 +99,26 @@ impl SupplyChainScanner {
 
     pub fn skip_lockfile_integrity(mut self, skip: bool) -> Self {
         self.skip_lockfile_integrity = skip;
+        self
+    }
+
+    pub fn skip_cicd(mut self, skip: bool) -> Self {
+        self.skip_cicd = skip;
+        self
+    }
+
+    pub fn skip_malware(mut self, skip: bool) -> Self {
+        self.skip_malware = skip;
+        self
+    }
+
+    pub fn skip_registry(mut self, skip: bool) -> Self {
+        self.skip_registry = skip;
+        self
+    }
+
+    pub fn skip_secrets(mut self, skip: bool) -> Self {
+        self.skip_secrets = skip;
         self
     }
 
@@ -233,6 +265,20 @@ impl SupplyChainScanner {
         }
         if !self.skip_lockfile_integrity {
             checks.push(Box::new(LockfileIntegrityCheck));
+        }
+
+        // Phase 3 — CI/CD and advanced detection
+        if !self.skip_malware {
+            checks.push(Box::new(MalwareSignaturesCheck));
+        }
+        if !self.skip_cicd {
+            checks.push(Box::new(CicdActionsCheck));
+        }
+        if !self.skip_secrets {
+            checks.push(Box::new(CicdSecretsCheck));
+        }
+        if !self.skip_registry {
+            checks.push(Box::new(RegistryAuditCheck));
         }
 
         checks

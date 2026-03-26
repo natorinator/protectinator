@@ -3,10 +3,14 @@
 //! Each module implements a check targeting specific supply chain
 //! attack vectors.
 
+pub mod cicd_actions;
+pub mod cicd_secrets;
 pub mod lockfile_integrity;
+pub mod malware_signatures;
 pub mod npm_postinstall;
 pub mod pip_build_hooks;
 pub mod pth_injection;
+pub mod registry_audit;
 pub mod shell_profile;
 pub mod user_systemd;
 pub mod vulnerability;

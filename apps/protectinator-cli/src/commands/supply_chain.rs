@@ -69,6 +69,22 @@ pub struct SupplyChainScanArgs {
     /// Skip lock file git integrity check
     #[arg(long)]
     skip_lockfile_integrity: bool,
+
+    /// Skip GitHub Actions security audit
+    #[arg(long)]
+    skip_cicd: bool,
+
+    /// Skip known malware signature scanning
+    #[arg(long)]
+    skip_malware: bool,
+
+    /// Skip package registry configuration audit
+    #[arg(long)]
+    skip_registry: bool,
+
+    /// Skip CI/CD secrets exposure check
+    #[arg(long)]
+    skip_secrets: bool,
 }
 
 #[derive(Args)]
@@ -143,6 +159,10 @@ fn run_scan(args: SupplyChainScanArgs, format: &str) -> anyhow::Result<()> {
         .skip_pip_build_hooks(args.skip_pip_build_hooks)
         .skip_user_systemd(args.skip_user_systemd)
         .skip_lockfile_integrity(args.skip_lockfile_integrity)
+        .skip_cicd(args.skip_cicd)
+        .skip_malware(args.skip_malware)
+        .skip_registry(args.skip_registry)
+        .skip_secrets(args.skip_secrets)
         .ecosystem(args.ecosystem.map(|e| e.as_str().to_string()));
 
     let start = Instant::now();
