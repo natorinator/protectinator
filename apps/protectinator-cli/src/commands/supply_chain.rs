@@ -22,6 +22,12 @@ pub enum SupplyChainCommands {
     ///
     /// Lists lock files and package ecosystems found without running security checks.
     Detect(SupplyChainDetectArgs),
+
+    /// Pin GitHub Actions to commit SHAs
+    ///
+    /// Resolves mutable action references (tags/branches) to commit SHAs
+    /// and rewrites workflow files in place. Prevents tag-rewriting attacks.
+    Pin(SupplyChainPinArgs),
 }
 
 #[derive(Args)]
@@ -94,6 +100,17 @@ pub struct SupplyChainDetectArgs {
     root: Option<PathBuf>,
 }
 
+#[derive(Args)]
+pub struct SupplyChainPinArgs {
+    /// Root filesystem path (default: current directory)
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    /// Dry run — show what would be pinned without modifying files
+    #[arg(long)]
+    dry_run: bool,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ScEcosystem {
     Python,
@@ -137,6 +154,7 @@ pub fn run(cmd: SupplyChainCommands, format: &str) -> anyhow::Result<()> {
     match cmd {
         SupplyChainCommands::Scan(args) => run_scan(args, format),
         SupplyChainCommands::Detect(args) => run_detect(args, format),
+        SupplyChainCommands::Pin(args) => run_pin(args, format),
     }
 }
 
@@ -329,6 +347,103 @@ fn run_detect(args: SupplyChainDetectArgs, format: &str) -> anyhow::Result<()> {
             }
             println!();
             println!("  {} lock file(s) found", lock_files.len());
+        }
+    }
+
+    Ok(())
+}
+
+fn run_pin(args: SupplyChainPinArgs, format: &str) -> anyhow::Result<()> {
+    let is_json = format == "json";
+    let root = args
+        .root
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+    if !root.exists() {
+        anyhow::bail!("Root path '{}' does not exist.", root.display());
+    }
+
+    // Pick up GH_TOKEN or GITHUB_TOKEN from env for API auth
+    let token = std::env::var("GH_TOKEN")
+        .or_else(|_| std::env::var("GITHUB_TOKEN"))
+        .ok();
+
+    if !is_json && !args.dry_run {
+        println!("Pinning GitHub Actions to commit SHAs");
+        println!("=====================================");
+        println!("  Root: {}", root.display());
+        if token.is_some() {
+            println!("  Auth: using GH_TOKEN");
+        } else {
+            println!("  Auth: none (may hit rate limits — set GH_TOKEN for higher limits)");
+        }
+        println!();
+    }
+
+    if !is_json && args.dry_run {
+        println!("Dry run — no files will be modified");
+        println!("===================================");
+        println!("  Root: {}", root.display());
+        println!();
+    }
+
+    let summary = protectinator_supply_chain::pin::pin_workflow_actions(
+        &root,
+        args.dry_run,
+        token.as_deref(),
+    );
+
+    if is_json {
+        let json = serde_json::json!({
+            "files_scanned": summary.files_scanned,
+            "actions_found": summary.actions_found,
+            "actions_pinned": summary.actions_pinned,
+            "already_pinned": summary.already_pinned,
+            "errors": summary.errors,
+            "results": summary.results.iter().map(|r| {
+                serde_json::json!({
+                    "file": r.file.display().to_string(),
+                    "action": r.action,
+                    "old_ref": r.old_ref,
+                    "new_sha": r.new_sha,
+                    "was_already_pinned": r.was_already_pinned,
+                })
+            }).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&json)?);
+    } else {
+        for result in &summary.results {
+            if result.was_already_pinned {
+                println!(
+                    "  \x1b[32m✓\x1b[0m {}@{} (already pinned)",
+                    result.action, &result.new_sha[..12]
+                );
+            } else {
+                let verb = if args.dry_run { "would pin" } else { "pinned" };
+                println!(
+                    "  \x1b[93m→\x1b[0m {} {}@{} -> {}",
+                    verb, result.action, result.old_ref, &result.new_sha[..12]
+                );
+            }
+        }
+
+        for err in &summary.errors {
+            println!("  \x1b[91m✗\x1b[0m {}", err);
+        }
+
+        println!();
+        println!(
+            "  {} files scanned, {} actions found, {} pinned, {} already pinned, {} errors",
+            summary.files_scanned,
+            summary.actions_found,
+            summary.actions_pinned,
+            summary.already_pinned,
+            summary.errors.len()
+        );
+
+        if args.dry_run && summary.actions_pinned > 0 {
+            println!();
+            println!("  Run without --dry-run to apply changes.");
         }
     }
 

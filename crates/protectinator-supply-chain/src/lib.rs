@@ -18,6 +18,7 @@
 pub mod checks;
 pub mod lockfile;
 pub mod osv;
+pub mod pin;
 pub mod scanner;
 pub mod types;
 
