@@ -16,6 +16,7 @@
 //! ```
 
 pub mod checks;
+pub mod gaol;
 pub mod history;
 pub mod lockfile;
 pub mod osv;

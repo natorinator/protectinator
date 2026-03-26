@@ -34,6 +34,22 @@ pub enum SupplyChainCommands {
     /// Lists previous scans with finding counts and timestamps.
     /// Use to track how findings change over time.
     History(SupplyChainHistoryArgs),
+
+    /// Evaluate a package in gaol's sandbox before installing
+    ///
+    /// Runs `gaol eval-dep` to install a package in an isolated sandbox,
+    /// monitors for suspicious behavior (network connections, filesystem
+    /// writes, process spawning), and reports findings.
+    /// Requires gaol to be installed (PATH or ~/.local/bin/gaol).
+    Eval(SupplyChainEvalArgs),
+
+    /// Install project dependencies in gaol's sandbox
+    ///
+    /// Runs `gaol dev-install` to install dependencies with network
+    /// restricted to package registries only. Reports any behavioral
+    /// findings from the sandboxed installation.
+    /// Requires gaol to be installed (PATH or ~/.local/bin/gaol).
+    Install(SupplyChainInstallArgs),
 }
 
 #[derive(Args)]
@@ -148,6 +164,31 @@ pub struct SupplyChainHistoryArgs {
     prune: Option<usize>,
 }
 
+#[derive(Args)]
+pub struct SupplyChainEvalArgs {
+    /// Package name to evaluate
+    package: String,
+
+    /// Package ecosystem
+    #[arg(long, value_enum, default_value_t = ScEcosystem::Python)]
+    ecosystem: ScEcosystem,
+
+    /// Package version (optional)
+    #[arg(long = "pkg-version")]
+    pkg_version: Option<String>,
+}
+
+#[derive(Args)]
+pub struct SupplyChainInstallArgs {
+    /// Project directory to install dependencies for (default: current directory)
+    #[arg(long)]
+    root: Option<PathBuf>,
+
+    /// Package ecosystem (auto-detected if not specified)
+    #[arg(long, value_enum)]
+    ecosystem: Option<ScEcosystem>,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ScEcosystem {
     Python,
@@ -161,6 +202,15 @@ impl ScEcosystem {
             ScEcosystem::Python => "pypi",
             ScEcosystem::Node => "npm",
             ScEcosystem::Rust => "crates.io",
+        }
+    }
+
+    /// Ecosystem name as gaol expects it
+    fn gaol_str(&self) -> &str {
+        match self {
+            ScEcosystem::Python => "python",
+            ScEcosystem::Node => "node",
+            ScEcosystem::Rust => "rust",
         }
     }
 }
@@ -193,6 +243,8 @@ pub fn run(cmd: SupplyChainCommands, format: &str) -> anyhow::Result<()> {
         SupplyChainCommands::Detect(args) => run_detect(args, format),
         SupplyChainCommands::Pin(args) => run_pin(args, format),
         SupplyChainCommands::History(args) => run_history(args, format),
+        SupplyChainCommands::Eval(args) => run_eval(args, format),
+        SupplyChainCommands::Install(args) => run_install(args, format),
     }
 }
 
@@ -998,6 +1050,140 @@ fn run_history(args: SupplyChainHistoryArgs, format: &str) -> anyhow::Result<()>
             println!();
             println!("  {} scan(s) shown", scans.len());
         }
+    }
+
+    Ok(())
+}
+
+fn run_eval(args: SupplyChainEvalArgs, format: &str) -> anyhow::Result<()> {
+    let is_json = format == "json";
+    let ecosystem = args.ecosystem.gaol_str();
+
+    if !is_json {
+        println!("Sandboxed Package Evaluation (via gaol)");
+        println!("=======================================");
+        println!("  Package:   {}", args.package);
+        println!("  Ecosystem: {}", ecosystem);
+        if let Some(ref v) = args.pkg_version {
+            println!("  Version:   {}", v);
+        }
+        println!();
+    }
+
+    let findings = protectinator_supply_chain::gaol::eval_dep(
+        &args.package,
+        ecosystem,
+        args.pkg_version.as_deref(),
+    )
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if is_json {
+        println!("{}", serde_json::to_string_pretty(&findings)?);
+    } else if findings.is_empty() {
+        println!("  \x1b[32m✓\x1b[0m No suspicious behavior detected");
+        println!();
+        println!("  Package appears safe to install.");
+    } else {
+        for f in &findings {
+            println!(
+                "  {} [{}] {}",
+                severity_bullet(f.severity),
+                f.severity,
+                f.title
+            );
+            // Truncate long descriptions
+            let desc = if f.description.len() > 200 {
+                format!("{}...", &f.description[..200])
+            } else {
+                f.description.clone()
+            };
+            println!("    {}", desc);
+            if let Some(ref r) = f.resource {
+                println!("    Resource: {}", r);
+            }
+        }
+
+        println!();
+        let critical = findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical)
+            .count();
+        let high = findings
+            .iter()
+            .filter(|f| f.severity == Severity::High)
+            .count();
+        if critical > 0 || high > 0 {
+            println!(
+                "  \x1b[91mWARNING: {} critical, {} high severity — do NOT install without investigation\x1b[0m",
+                critical, high
+            );
+        } else {
+            println!(
+                "  {} finding(s) — review before installing",
+                findings.len()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn run_install(args: SupplyChainInstallArgs, format: &str) -> anyhow::Result<()> {
+    let is_json = format == "json";
+    let root = args
+        .root
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+    if !root.exists() {
+        anyhow::bail!(
+            "Project directory '{}' does not exist.",
+            root.display()
+        );
+    }
+
+    let ecosystem_str = args.ecosystem.map(|e| e.gaol_str().to_string());
+
+    if !is_json {
+        println!("Sandboxed Dependency Installation (via gaol)");
+        println!("=============================================");
+        println!("  Project:   {}", root.display());
+        if let Some(ref eco) = ecosystem_str {
+            println!("  Ecosystem: {}", eco);
+        } else {
+            println!("  Ecosystem: auto-detect");
+        }
+        println!();
+    }
+
+    let findings = protectinator_supply_chain::gaol::dev_install(
+        &root,
+        ecosystem_str.as_deref(),
+    )
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if is_json {
+        println!("{}", serde_json::to_string_pretty(&findings)?);
+    } else if findings.is_empty() {
+        println!("  \x1b[32m✓\x1b[0m Dependencies installed successfully with no findings");
+    } else {
+        for f in &findings {
+            println!(
+                "  {} [{}] {}",
+                severity_bullet(f.severity),
+                f.severity,
+                f.title
+            );
+        }
+
+        println!();
+        println!(
+            "  {} finding(s) (C:{} H:{} M:{} L:{})",
+            findings.len(),
+            findings.iter().filter(|f| f.severity == Severity::Critical).count(),
+            findings.iter().filter(|f| f.severity == Severity::High).count(),
+            findings.iter().filter(|f| f.severity == Severity::Medium).count(),
+            findings.iter().filter(|f| f.severity == Severity::Low).count(),
+        );
     }
 
     Ok(())
