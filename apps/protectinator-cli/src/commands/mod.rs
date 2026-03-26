@@ -18,6 +18,8 @@ pub mod privesc;
 #[cfg(feature = "procmon")]
 pub mod procmon;
 pub mod scan;
+#[cfg(feature = "supply-chain")]
+pub mod supply_chain;
 #[cfg(feature = "sigma")]
 pub mod sigma;
 #[cfg(feature = "osverify")]

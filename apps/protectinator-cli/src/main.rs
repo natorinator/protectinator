@@ -214,6 +214,17 @@ enum Commands {
     #[command(subcommand)]
     Iot(commands::iot::IotCommands),
 
+    /// Supply chain security scanner
+    ///
+    /// Scan for software supply chain compromises:
+    /// - Known vulnerabilities via OSV database
+    /// - Malicious .pth file injection (TeamPCP/LiteLLM vector)
+    /// - Shell profile tampering
+    /// - Lock file integrity issues
+    #[cfg(feature = "supply-chain")]
+    #[command(subcommand, name = "supply-chain")]
+    SupplyChain(commands::supply_chain::SupplyChainCommands),
+
     /// Show system information
     ///
     /// Display information about the current system
@@ -265,6 +276,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Container(cmd) => commands::container::run(cmd, format_str),
         #[cfg(feature = "iot")]
         Commands::Iot(cmd) => commands::iot::run(cmd, format_str),
+        #[cfg(feature = "supply-chain")]
+        Commands::SupplyChain(cmd) => commands::supply_chain::run(cmd, format_str),
         Commands::Info => commands::info::run(),
     };
 

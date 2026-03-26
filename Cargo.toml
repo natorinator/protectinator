@@ -15,6 +15,7 @@ members = [
     "crates/protectinator-agents",
     "crates/protectinator-container",
     "crates/protectinator-iot",
+    "crates/protectinator-supply-chain",
     "apps/protectinator-cli",
 ]
 
@@ -69,7 +70,7 @@ rayon = "1.10"
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 
 # HTTP client (minimal deps, rustls for TLS)
-ureq = { version = "2.0", default-features = false, features = ["tls"] }
+ureq = { version = "2.0", default-features = false, features = ["json", "tls"] }
 
 # Internal crates
 protectinator-core = { path = "crates/protectinator-core" }
@@ -86,6 +87,10 @@ protectinator-privesc = { path = "crates/protectinator-privesc" }
 protectinator-agents = { path = "crates/protectinator-agents" }
 protectinator-container = { path = "crates/protectinator-container" }
 protectinator-iot = { path = "crates/protectinator-iot" }
+protectinator-supply-chain = { path = "crates/protectinator-supply-chain" }
+
+# TOML parsing
+toml = "0.8"
 
 # Hashing (dpkg md5sums compatibility)
 md-5 = "0.10"

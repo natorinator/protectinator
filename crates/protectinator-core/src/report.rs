@@ -97,6 +97,11 @@ pub enum FindingSource {
         scan_mode: String,
         inner_source: Box<FindingSource>,
     },
+    /// Finding from software supply chain security scan
+    SupplyChain {
+        check_category: String,
+        ecosystem: Option<String>,
+    },
 }
 
 /// Type of file change detected
