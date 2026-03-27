@@ -16,6 +16,7 @@ use crate::checks::user_systemd::UserSystemdCheck;
 use crate::checks::vulnerability::VulnerabilityCheck;
 use crate::checks::SupplyChainCheck;
 use crate::lockfile;
+use crate::trust::TrustVerificationCheck;
 use crate::types::{SupplyChainContext, SupplyChainScanResults};
 use protectinator_container::filesystem::ContainerFs;
 use protectinator_core::{Finding, ScanResults, SystemInfo};
@@ -38,6 +39,7 @@ pub struct SupplyChainScanner {
     skip_malware: bool,
     skip_registry: bool,
     skip_secrets: bool,
+    skip_trust: bool,
     ecosystem_filter: Option<String>,
 }
 
@@ -58,6 +60,7 @@ impl SupplyChainScanner {
             skip_malware: false,
             skip_registry: false,
             skip_secrets: false,
+            skip_trust: false,
             ecosystem_filter: None,
         }
     }
@@ -119,6 +122,11 @@ impl SupplyChainScanner {
 
     pub fn skip_secrets(mut self, skip: bool) -> Self {
         self.skip_secrets = skip;
+        self
+    }
+
+    pub fn skip_trust(mut self, skip: bool) -> Self {
+        self.skip_trust = skip;
         self
     }
 
@@ -279,6 +287,11 @@ impl SupplyChainScanner {
         }
         if !self.skip_registry {
             checks.push(Box::new(RegistryAuditCheck));
+        }
+
+        // Phase 4 — Cryptographic trust verification
+        if !self.skip_trust {
+            checks.push(Box::new(TrustVerificationCheck));
         }
 
         checks

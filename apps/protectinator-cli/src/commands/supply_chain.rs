@@ -6,6 +6,7 @@
 
 use clap::{Args, Subcommand, ValueEnum};
 use protectinator_core::Severity;
+use protectinator_supply_chain::trust::{TrustManager, TrustVerification};
 use protectinator_supply_chain::SupplyChainScanner;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -69,6 +70,13 @@ pub enum SupplyChainCommands {
     /// Answers "which of my repos use package X?"
     #[command(name = "search")]
     Search(SupplyChainSearchArgs),
+
+    /// Manage cryptographic file trust (via nono)
+    ///
+    /// Sign and verify files using ECDSA signatures.
+    /// Provides stronger integrity guarantees than hash-only FIM.
+    #[command(subcommand)]
+    Trust(SupplyChainTrustCommands),
 }
 
 #[derive(Args)]
@@ -144,6 +152,10 @@ pub struct SupplyChainScanArgs {
     /// Skip CI/CD secrets exposure check
     #[arg(long)]
     skip_secrets: bool,
+
+    /// Skip cryptographic trust verification
+    #[arg(long)]
+    skip_trust: bool,
 }
 
 #[derive(Args)]
@@ -248,6 +260,49 @@ pub struct SupplyChainSearchArgs {
     package: String,
 }
 
+#[derive(Subcommand)]
+pub enum SupplyChainTrustCommands {
+    /// Initialize a trust policy in a directory
+    Init(TrustInitArgs),
+    /// Sign all files matching the trust policy
+    Sign(TrustSignArgs),
+    /// Verify all files against the trust policy
+    Verify(TrustVerifyArgs),
+    /// List trust status for all policy-matched files
+    List(TrustListArgs),
+}
+
+#[derive(Args)]
+pub struct TrustInitArgs {
+    /// Root directory for the trust policy (default: current directory)
+    #[arg(long)]
+    root: Option<PathBuf>,
+    /// Glob patterns to include (repeatable)
+    #[arg(long = "include", num_args = 1)]
+    patterns: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct TrustSignArgs {
+    /// Root directory containing the trust policy (default: current directory)
+    #[arg(long)]
+    root: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct TrustVerifyArgs {
+    /// Root directory containing the trust policy (default: current directory)
+    #[arg(long)]
+    root: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct TrustListArgs {
+    /// Root directory containing the trust policy (default: current directory)
+    #[arg(long)]
+    root: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ScEcosystem {
     Python,
@@ -307,6 +362,7 @@ pub fn run(cmd: SupplyChainCommands, format: &str) -> anyhow::Result<()> {
         SupplyChainCommands::Sbom(args) => run_sbom(args, format),
         SupplyChainCommands::Watch(args) => run_watch(args, format),
         SupplyChainCommands::Search(args) => run_search(args, format),
+        SupplyChainCommands::Trust(cmd) => run_trust(cmd, format),
     }
 }
 
@@ -551,7 +607,128 @@ fn build_scanner(root: PathBuf, args: &SupplyChainScanArgs) -> SupplyChainScanne
         .skip_malware(args.skip_malware)
         .skip_registry(args.skip_registry)
         .skip_secrets(args.skip_secrets)
+        .skip_trust(args.skip_trust)
         .ecosystem(args.ecosystem.map(|e| e.as_str().to_string()))
+}
+
+fn run_trust(cmd: SupplyChainTrustCommands, format: &str) -> anyhow::Result<()> {
+    let is_json = format == "json";
+
+    let manager = TrustManager::new()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    match cmd {
+        SupplyChainTrustCommands::Init(args) => {
+            let root = args
+                .root
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let patterns: Vec<&str> = args.patterns.iter().map(|s| s.as_str()).collect();
+
+            if patterns.is_empty() {
+                anyhow::bail!("At least one --include pattern is required");
+            }
+
+            manager.init(&root, &patterns)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+            if is_json {
+                let json = serde_json::json!({
+                    "action": "init",
+                    "root": root.display().to_string(),
+                    "patterns": args.patterns,
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            } else {
+                println!("Trust policy initialized in {}", root.display());
+                for p in &patterns {
+                    println!("  include: {p}");
+                }
+            }
+        }
+        SupplyChainTrustCommands::Sign(args) => {
+            let root = args
+                .root
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+            let result = manager.sign_all(&root)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+            if is_json {
+                let json = serde_json::json!({
+                    "action": "sign",
+                    "root": root.display().to_string(),
+                    "files_signed": result.files_signed,
+                    "errors": result.errors,
+                });
+                println!("{}", serde_json::to_string_pretty(&json)?);
+            } else {
+                println!("Signed {} file(s) in {}", result.files_signed, root.display());
+                for err in &result.errors {
+                    eprintln!("  error: {err}");
+                }
+            }
+        }
+        SupplyChainTrustCommands::Verify(args) => {
+            let root = args
+                .root
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+            let statuses = manager.verify_all(&root)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+            if is_json {
+                println!("{}", serde_json::to_string_pretty(&statuses)?);
+            } else {
+                let verified = statuses.iter().filter(|s| s.status == TrustVerification::Verified).count();
+                let tampered = statuses.iter().filter(|s| s.status == TrustVerification::Tampered).count();
+                let unsigned = statuses.iter().filter(|s| s.status == TrustVerification::Unsigned).count();
+                let missing = statuses.iter().filter(|s| s.status == TrustVerification::Missing).count();
+
+                println!("Trust Verification: {}", root.display());
+                println!("  verified: {verified}");
+                if tampered > 0 {
+                    println!("  TAMPERED: {tampered}");
+                }
+                if unsigned > 0 {
+                    println!("  unsigned: {unsigned}");
+                }
+                if missing > 0 {
+                    println!("  missing:  {missing}");
+                }
+                println!();
+
+                for s in &statuses {
+                    if s.status != TrustVerification::Verified {
+                        println!("  {:>10}  {}", format!("{:?}", s.status).to_uppercase(), s.file);
+                    }
+                }
+            }
+        }
+        SupplyChainTrustCommands::List(args) => {
+            let root = args
+                .root
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+            let statuses = manager.list(&root)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+            if is_json {
+                println!("{}", serde_json::to_string_pretty(&statuses)?);
+            } else {
+                println!("Trust Status: {}", root.display());
+                println!();
+                for s in &statuses {
+                    let signer = s.signer.as_deref().unwrap_or("-");
+                    println!("  {:>10}  {}  (signer: {})", format!("{:?}", s.status).to_uppercase(), s.file, signer);
+                }
+                if statuses.is_empty() {
+                    println!("  No files tracked by trust policy.");
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn run_multi_scan(

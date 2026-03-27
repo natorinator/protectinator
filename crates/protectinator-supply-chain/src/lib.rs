@@ -24,6 +24,7 @@ pub mod osv;
 pub mod pin;
 pub mod sbom;
 pub mod scanner;
+pub mod trust;
 pub mod types;
 
 pub use scanner::SupplyChainScanner;
