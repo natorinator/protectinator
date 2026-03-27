@@ -1,9 +1,9 @@
 //! Container scanning commands
 //!
-//! List and scan nspawn (and later Docker) containers for security issues.
+//! List and scan nspawn and Docker containers for security issues.
 
 use clap::{Args, Subcommand, ValueEnum};
-use protectinator_container::{discover, Container, ContainerScanner, ContainerState};
+use protectinator_container::{discover, Container, ContainerRuntime, ContainerScanner, ContainerState};
 use protectinator_core::Severity;
 use std::time::Instant;
 
@@ -11,14 +11,21 @@ use std::time::Instant;
 pub enum ContainerCommands {
     /// List discovered containers
     ///
-    /// Enumerate nspawn containers from /var/lib/machines/ and machinectl.
-    List,
+    /// Enumerate nspawn and Docker containers on the system.
+    List(ContainerListArgs),
 
     /// Scan a container for security issues
     ///
     /// Examines the container's filesystem from the host to check for
     /// rootkits, outdated packages, persistence mechanisms, and more.
     Scan(ContainerScanArgs),
+}
+
+#[derive(Args)]
+pub struct ContainerListArgs {
+    /// Filter by container runtime
+    #[arg(long, value_enum)]
+    runtime: Option<RuntimeFilter>,
 }
 
 #[derive(Args)]
@@ -30,6 +37,10 @@ pub struct ContainerScanArgs {
     /// Scan all discovered containers
     #[arg(long, group = "target")]
     all: bool,
+
+    /// Filter by container runtime
+    #[arg(long, value_enum)]
+    runtime: Option<RuntimeFilter>,
 
     /// Minimum severity to report
     #[arg(long, value_enum, default_value_t = ContainerMinSeverity::Low)]
@@ -60,6 +71,14 @@ pub struct ContainerScanArgs {
     skip_suid: bool,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum RuntimeFilter {
+    /// nspawn containers only
+    Nspawn,
+    /// Docker containers only
+    Docker,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
 pub enum ContainerMinSeverity {
     Info,
@@ -84,13 +103,22 @@ impl From<ContainerMinSeverity> for Severity {
 
 pub fn run(cmd: ContainerCommands, format: &str) -> anyhow::Result<()> {
     match cmd {
-        ContainerCommands::List => run_list(format),
+        ContainerCommands::List(args) => run_list(args, format),
         ContainerCommands::Scan(args) => run_scan(args, format),
     }
 }
 
-fn run_list(format: &str) -> anyhow::Result<()> {
-    let containers = discover::list_nspawn_containers();
+/// Discover containers with optional runtime filter
+fn discover_containers(runtime: Option<RuntimeFilter>) -> Vec<Container> {
+    match runtime {
+        Some(RuntimeFilter::Nspawn) => discover::list_nspawn_containers(),
+        Some(RuntimeFilter::Docker) => discover::list_docker_containers(),
+        None => discover::list_all_containers(),
+    }
+}
+
+fn run_list(args: ContainerListArgs, format: &str) -> anyhow::Result<()> {
+    let containers = discover_containers(args.runtime);
     let is_json = format == "json";
 
     if containers.is_empty() {
@@ -99,8 +127,19 @@ fn run_list(format: &str) -> anyhow::Result<()> {
         } else {
             println!("No containers found.");
             println!();
-            println!("Searched: /var/lib/machines/");
-            println!("Tip: Ensure you have read access to /var/lib/machines/ (may require root).");
+            match args.runtime {
+                Some(RuntimeFilter::Nspawn) => {
+                    println!("Searched: /var/lib/machines/");
+                    println!("Tip: Ensure you have read access to /var/lib/machines/ (may require root).");
+                }
+                Some(RuntimeFilter::Docker) => {
+                    println!("Tip: Ensure Docker is running and you have access to the Docker socket.");
+                }
+                None => {
+                    println!("Searched: /var/lib/machines/ (nspawn), docker ps (Docker)");
+                    println!("Tip: May require root or Docker group membership.");
+                }
+            }
         }
         return Ok(());
     }
@@ -113,12 +152,12 @@ fn run_list(format: &str) -> anyhow::Result<()> {
         println!("═══════════════════════════════════════════════════════════════");
         println!();
         println!(
-            "  {:<20} {:<10} {:<10} {:<30}",
+            "  {:<30} {:<10} {:<10} {:<30}",
             "NAME", "RUNTIME", "STATE", "OS"
         );
         println!(
-            "  {:<20} {:<10} {:<10} {:<30}",
-            "────────────────────",
+            "  {:<30} {:<10} {:<10} {:<30}",
+            "──────────────────────────────",
             "──────────",
             "──────────",
             "──────────────────────────────"
@@ -129,7 +168,7 @@ fn run_list(format: &str) -> anyhow::Result<()> {
                 .os_info
                 .as_ref()
                 .map(|o| o.pretty_name.as_str())
-                .unwrap_or("unknown");
+                .unwrap_or("—");
 
             let state_colored = match container.state {
                 ContainerState::Running => format!("\x1b[32m{}\x1b[0m", container.state),
@@ -138,25 +177,44 @@ fn run_list(format: &str) -> anyhow::Result<()> {
             };
 
             println!(
-                "  {:<20} {:<10} {:<20} {:<30}",
+                "  {:<30} {:<10} {:<20} {:<30}",
                 container.name, container.runtime, state_colored, os
             );
         }
 
         println!();
-        println!("  {} container(s) found", containers.len());
+
+        // Summary by runtime
+        let nspawn_count = containers.iter().filter(|c| c.runtime == ContainerRuntime::Nspawn).count();
+        let docker_count = containers.iter().filter(|c| c.runtime == ContainerRuntime::Docker).count();
+        let running_count = containers.iter().filter(|c| c.state == ContainerState::Running).count();
+
+        let mut parts = Vec::new();
+        if nspawn_count > 0 {
+            parts.push(format!("{} nspawn", nspawn_count));
+        }
+        if docker_count > 0 {
+            parts.push(format!("{} docker", docker_count));
+        }
+
+        println!(
+            "  {} container(s) found ({}, {} running)",
+            containers.len(),
+            parts.join(", "),
+            running_count
+        );
     }
 
     Ok(())
 }
 
 fn run_scan(args: ContainerScanArgs, format: &str) -> anyhow::Result<()> {
-    let containers = discover::list_nspawn_containers();
+    let containers = discover_containers(args.runtime);
     let is_json = format == "json";
 
     if containers.is_empty() {
         anyhow::bail!(
-            "No containers found. Ensure you have read access to /var/lib/machines/ (may require root)."
+            "No containers found. Ensure you have access to Docker or /var/lib/machines/."
         );
     }
 
@@ -190,6 +248,31 @@ fn run_scan(args: ContainerScanArgs, format: &str) -> anyhow::Result<()> {
     let min_severity: Severity = args.min_severity.into();
 
     for target in &targets {
+        // Docker containers must be running to have an accessible merged filesystem
+        if target.runtime == ContainerRuntime::Docker && target.state != ContainerState::Running {
+            if !is_json {
+                println!(
+                    "Skipping {} ({}) — Docker container must be running to scan",
+                    target.name, target.state
+                );
+                println!();
+            }
+            continue;
+        }
+
+        // Verify the root path is accessible
+        if !target.root_path.is_dir() {
+            if !is_json {
+                println!(
+                    "Skipping {} — filesystem not accessible at {}",
+                    target.name,
+                    target.root_path.display()
+                );
+                println!();
+            }
+            continue;
+        }
+
         let start = Instant::now();
 
         if !is_json {
