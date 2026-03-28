@@ -47,10 +47,19 @@ pub enum OutputFormat {
 ///
 /// Run comprehensive security scans on Linux and macOS systems.
 /// Zero configuration required - just run 'protectinator scan'.
+const VERSION_STRING: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("VCS_COMMIT"),
+    " ",
+    env!("BUILD_DATE"),
+    ")"
+);
+
 #[derive(Parser)]
 #[command(name = "protectinator")]
 #[command(author = "Protectinator Team")]
-#[command(version)]
+#[command(version = VERSION_STRING)]
 #[command(about = "Portable, zero-config security monitoring for Linux and macOS")]
 #[command(long_about = "Protectinator is a comprehensive security monitoring tool that runs \
 on Linux and macOS without requiring any configuration. It includes file integrity monitoring, \
