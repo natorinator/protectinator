@@ -21,6 +21,7 @@
 pub mod checks;
 pub mod discover;
 pub mod filesystem;
+pub mod packages;
 pub mod scanner;
 pub mod types;
 

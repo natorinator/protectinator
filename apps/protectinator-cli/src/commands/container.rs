@@ -4,7 +4,10 @@
 
 use clap::{Args, Subcommand, ValueEnum};
 use protectinator_container::{discover, Container, ContainerRuntime, ContainerScanner, ContainerState};
+use protectinator_container::filesystem::ContainerFs;
+use protectinator_container::packages;
 use protectinator_core::Severity;
+use std::path::PathBuf;
 use std::time::Instant;
 
 #[derive(Subcommand)]
@@ -19,6 +22,12 @@ pub enum ContainerCommands {
     /// Examines the container's filesystem from the host to check for
     /// rootkits, outdated packages, persistence mechanisms, and more.
     Scan(ContainerScanArgs),
+
+    /// Generate SBOM for container packages
+    ///
+    /// Creates a CycloneDX 1.5 SBOM from packages installed in a container.
+    /// Supports dpkg (Debian/Ubuntu) and apk (Alpine) package managers.
+    Sbom(ContainerSbomArgs),
 }
 
 #[derive(Args)]
@@ -79,6 +88,29 @@ pub struct ContainerScanArgs {
     offline: bool,
 }
 
+#[derive(Args)]
+pub struct ContainerSbomArgs {
+    /// Container name (use --all for all containers)
+    #[arg(group = "target")]
+    name: Option<String>,
+
+    /// Generate SBOMs for all discovered containers
+    #[arg(long, group = "target")]
+    all: bool,
+
+    /// Filter by container runtime
+    #[arg(long, value_enum)]
+    runtime: Option<RuntimeFilter>,
+
+    /// Save SBOMs to default storage location for cross-repo queries
+    #[arg(long)]
+    save: bool,
+
+    /// Custom output directory
+    #[arg(long)]
+    output: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum RuntimeFilter {
     /// nspawn containers only
@@ -113,6 +145,7 @@ pub fn run(cmd: ContainerCommands, format: &str) -> anyhow::Result<()> {
     match cmd {
         ContainerCommands::List(args) => run_list(args, format),
         ContainerCommands::Scan(args) => run_scan(args, format),
+        ContainerCommands::Sbom(args) => run_sbom(args, format),
     }
 }
 
@@ -413,4 +446,99 @@ fn color_bullet(severity: &str) -> &'static str {
         "LOW" => "\x1b[36m●\x1b[0m",
         _ => "\x1b[90m●\x1b[0m",
     }
+}
+
+fn run_sbom(args: ContainerSbomArgs, format: &str) -> anyhow::Result<()> {
+    let containers = discover_containers(args.runtime);
+    let is_json = format == "json";
+
+    if containers.is_empty() {
+        anyhow::bail!("No containers found.");
+    }
+
+    let targets: Vec<&Container> = if args.all {
+        containers.iter().collect()
+    } else if let Some(ref name) = args.name {
+        match containers.iter().find(|c| c.name == *name) {
+            Some(c) => vec![c],
+            None => {
+                let available: Vec<&str> = containers.iter().map(|c| c.name.as_str()).collect();
+                anyhow::bail!(
+                    "Container '{}' not found. Available: {}",
+                    name,
+                    available.join(", ")
+                );
+            }
+        }
+    } else {
+        anyhow::bail!("Specify a container name or use --all");
+    };
+
+    // Determine save directory
+    let save_dir = if args.save {
+        let home = std::env::var("HOME")
+            .map_err(|_| anyhow::anyhow!("HOME not set"))?;
+        Some(PathBuf::from(home).join(".local/share/protectinator/sboms"))
+    } else {
+        args.output.clone()
+    };
+
+    if let Some(ref dir) = save_dir {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| anyhow::anyhow!("Failed to create SBOM directory: {}", e))?;
+    }
+
+    for target in &targets {
+        // Skip containers with inaccessible filesystems
+        if !target.root_path.is_dir() {
+            if !is_json {
+                println!(
+                    "  Skipping {} — filesystem not accessible",
+                    target.name
+                );
+            }
+            continue;
+        }
+
+        let fs = ContainerFs::new(&target.root_path);
+        let pkgs = packages::extract_packages(&fs);
+
+        let os_pretty = target
+            .os_info
+            .as_ref()
+            .map(|o| o.pretty_name.as_str());
+
+        let sbom = packages::generate_container_sbom(&pkgs, &target.name, os_pretty);
+
+        if let Some(ref dir) = save_dir {
+            let filename = format!("container-{}.cdx.json", target.name);
+            let path = dir.join(&filename);
+            let json_str = serde_json::to_string_pretty(&sbom)?;
+            std::fs::write(&path, json_str)
+                .map_err(|e| anyhow::anyhow!("Failed to write {}: {}", path.display(), e))?;
+
+            if !is_json {
+                println!(
+                    "  \x1b[32m✓\x1b[0m {} — {} packages ({}), saved to {}",
+                    target.name,
+                    pkgs.len(),
+                    target.runtime,
+                    path.display()
+                );
+            }
+        } else {
+            // Print to stdout
+            if !is_json {
+                println!(
+                    "  {} — {} packages ({})",
+                    target.name,
+                    pkgs.len(),
+                    target.runtime
+                );
+            }
+            println!("{}", serde_json::to_string_pretty(&sbom)?);
+        }
+    }
+
+    Ok(())
 }
