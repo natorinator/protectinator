@@ -835,7 +835,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "anyhow",
  "chrono",
@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-agents"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "nix",
  "protectinator-core",
@@ -879,7 +879,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-container"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "chrono",
  "protectinator-core",
@@ -894,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-core"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "chrono",
  "serde",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-engine"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "protectinator-core",
  "protectinator-platform",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-fim"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "blake3",
  "chrono",
@@ -934,7 +934,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-hardening"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "glob",
  "nix",
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-iot"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "chrono",
  "md-5",
@@ -968,7 +968,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-osverify"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "blake3",
  "protectinator-core",
@@ -985,7 +985,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-persistence"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "chrono",
  "glob",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-platform"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "nix",
  "protectinator-core",
@@ -1010,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-privesc"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "nix",
  "protectinator-core",
@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-procmon"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "protectinator-core",
  "serde",
@@ -1033,7 +1033,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-remote"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "chrono",
  "protectinator-container",
@@ -1048,7 +1048,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-sigma"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "chrono",
  "glob",
@@ -1066,7 +1066,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-supply-chain"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "chrono",
  "protectinator-container",
@@ -1086,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "protectinator-yara"
-version = "0.1.0"
+version = "2026.3.28"
 dependencies = [
  "protectinator-core",
  "rayon",

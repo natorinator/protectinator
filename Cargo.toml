@@ -21,10 +21,10 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "2026.3.28"
 edition = "2021"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/your-org/protectinator"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/erewhon/protectinator"
 rust-version = "1.75"
 authors = ["Protectinator Contributors"]
 description = "A portable, zero-config security monitoring tool"
