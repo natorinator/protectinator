@@ -7,8 +7,13 @@ use crate::types::RemoteHost;
 use std::process::Command;
 use tracing::{debug, warn};
 
-/// Execute a command on a remote host via SSH
+/// Execute a command on a remote host via SSH with default timeout (60s)
 pub fn ssh_exec(host: &RemoteHost, command: &str) -> Result<String, String> {
+    ssh_exec_timeout(host, command, 60)
+}
+
+/// Execute a command on a remote host via SSH with a custom timeout in seconds
+pub fn ssh_exec_timeout(host: &RemoteHost, command: &str, timeout_secs: u64) -> Result<String, String> {
     let mut cmd = Command::new("ssh");
 
     // Batch mode: no interactive prompts
@@ -32,11 +37,28 @@ pub fn ssh_exec(host: &RemoteHost, command: &str) -> Result<String, String> {
     cmd.arg(host.ssh_dest());
     cmd.arg(command);
 
-    debug!("SSH exec: ssh {} '{}'", host.ssh_dest(), command);
+    debug!("SSH exec ({}s timeout): ssh {} '{}'", timeout_secs, host.ssh_dest(), command);
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run ssh: {}", e))?;
+    // Use timeout command to prevent hanging on slow/full hosts
+    let output = if timeout_secs > 0 {
+        Command::new("timeout")
+            .arg(format!("{}s", timeout_secs))
+            .arg("ssh")
+            .args(cmd.get_args())
+            .output()
+            .map_err(|e| format!("Failed to run ssh: {}", e))?
+    } else {
+        cmd.output()
+            .map_err(|e| format!("Failed to run ssh: {}", e))?
+    };
+
+    // timeout returns exit code 124 when the command times out
+    if output.status.code() == Some(124) {
+        return Err(format!(
+            "SSH command timed out after {}s on {}",
+            timeout_secs, host.ssh_dest()
+        ));
+    }
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -59,9 +81,10 @@ pub fn ssh_exec(host: &RemoteHost, command: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-/// Execute a command on a remote host, returning empty string on failure
+/// Execute a command on a remote host, returning empty string on failure.
+/// Uses a 30-second timeout to avoid hanging on slow hosts.
 pub fn ssh_exec_optional(host: &RemoteHost, command: &str) -> String {
-    match ssh_exec(host, command) {
+    match ssh_exec_timeout(host, command, 30) {
         Ok(output) => output,
         Err(e) => {
             debug!("Optional SSH command failed: {}", e);
