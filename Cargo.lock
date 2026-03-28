@@ -852,6 +852,7 @@ dependencies = [
  "protectinator-platform",
  "protectinator-privesc",
  "protectinator-procmon",
+ "protectinator-remote",
  "protectinator-sigma",
  "protectinator-supply-chain",
  "protectinator-yara",
@@ -1027,6 +1028,21 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "tracing",
+]
+
+[[package]]
+name = "protectinator-remote"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "protectinator-container",
+ "protectinator-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "ureq",
 ]
 
 [[package]]

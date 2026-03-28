@@ -16,6 +16,7 @@ members = [
     "crates/protectinator-container",
     "crates/protectinator-iot",
     "crates/protectinator-supply-chain",
+    "crates/protectinator-remote",
     "apps/protectinator-cli",
 ]
 
@@ -88,6 +89,7 @@ protectinator-agents = { path = "crates/protectinator-agents" }
 protectinator-container = { path = "crates/protectinator-container" }
 protectinator-iot = { path = "crates/protectinator-iot" }
 protectinator-supply-chain = { path = "crates/protectinator-supply-chain" }
+protectinator-remote = { path = "crates/protectinator-remote" }
 
 # TOML parsing
 toml = "0.8"

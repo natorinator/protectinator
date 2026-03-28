@@ -102,6 +102,12 @@ pub enum FindingSource {
         check_category: String,
         ecosystem: Option<String>,
     },
+    /// Finding from remote host security scan via SSH
+    Remote {
+        host: String,
+        scan_mode: String,
+        inner_source: Box<FindingSource>,
+    },
 }
 
 /// Type of file change detected

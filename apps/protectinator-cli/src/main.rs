@@ -225,6 +225,19 @@ enum Commands {
     #[command(subcommand, name = "supply-chain")]
     SupplyChain(commands::supply_chain::SupplyChainCommands),
 
+    /// Remote host security scanner
+    ///
+    /// Scan remote hosts via SSH for security issues:
+    /// - Known CVE vulnerabilities in installed packages (OSV)
+    /// - Rootkit indicators (hidden files, deleted binaries, LD_PRELOAD)
+    /// - Persistence mechanisms (cron, systemd, shell profiles)
+    /// - Hardening issues (SSH config, SUID binaries)
+    ///
+    /// Two modes: agent (run protectinator remotely) or agentless (gather data via SSH)
+    #[cfg(feature = "remote")]
+    #[command(subcommand)]
+    Remote(commands::remote::RemoteCommands),
+
     /// Show system information
     ///
     /// Display information about the current system
@@ -278,6 +291,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Iot(cmd) => commands::iot::run(cmd, format_str),
         #[cfg(feature = "supply-chain")]
         Commands::SupplyChain(cmd) => commands::supply_chain::run(cmd, format_str),
+        #[cfg(feature = "remote")]
+        Commands::Remote(cmd) => commands::remote::run(cmd, format_str),
         Commands::Info => commands::info::run(),
     };
 

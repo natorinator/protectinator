@@ -26,3 +26,5 @@ pub mod sigma;
 pub mod verify;
 #[cfg(feature = "yara")]
 pub mod yara;
+#[cfg(feature = "remote")]
+pub mod remote;
