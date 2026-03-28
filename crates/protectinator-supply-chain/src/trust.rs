@@ -31,7 +31,7 @@ impl TrustVerification {
         match s.to_lowercase().as_str() {
             "verified" => Self::Verified,
             "unsigned" => Self::Unsigned,
-            "tampered" => Self::Tampered,
+            "tampered" | "failed" => Self::Tampered,
             "missing" => Self::Missing,
             other => Self::Unknown(other.to_string()),
         }
@@ -44,6 +44,7 @@ pub struct TrustStatus {
     pub file: String,
     pub status: TrustVerification,
     pub signer: Option<String>,
+    pub reason: Option<String>,
 }
 
 /// Result of a signing operation
@@ -118,14 +119,19 @@ impl TrustManager {
             .output()
             .map_err(|e| format!("Failed to run nono: {e}"))?;
 
+        // nono writes all output to stderr
+        let combined = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("nono trust sign failed: {stderr}"));
+            return Err(format!("nono trust sign failed: {}", combined.trim()));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let files_signed = stdout.lines().filter(|l| l.contains("SIGNED")).count();
-        let errors: Vec<String> = stdout
+        let files_signed = combined.lines().filter(|l| l.contains("SIGNED")).count();
+        let errors: Vec<String> = combined
             .lines()
             .filter(|l| l.contains("ERROR") || l.contains("FAILED"))
             .map(|l| l.to_string())
@@ -149,11 +155,16 @@ impl TrustManager {
                 .output()
                 .map_err(|e| format!("Failed to run nono: {e}"))?;
 
-            if output.status.success() {
+            let combined = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            if output.status.success() && combined.contains("SIGNED") {
                 total_signed += 1;
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                errors.push(format!("{file}: {stderr}"));
+            } else if !output.status.success() {
+                errors.push(format!("{file}: {}", combined.trim()));
             }
         }
 
@@ -204,6 +215,7 @@ fn parse_trust_list_json(json_str: &str) -> Result<Vec<TrustStatus>, String> {
             file: entry.file,
             status: TrustVerification::from_str(&entry.status),
             signer: entry.signer,
+            reason: entry.reason,
         })
         .collect())
 }
@@ -214,6 +226,8 @@ struct RawTrustEntry {
     status: String,
     #[serde(default)]
     signer: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +341,8 @@ mod tests {
         assert_eq!(TrustVerification::from_str("VERIFIED"), TrustVerification::Verified);
         assert_eq!(TrustVerification::from_str("unsigned"), TrustVerification::Unsigned);
         assert_eq!(TrustVerification::from_str("tampered"), TrustVerification::Tampered);
+        assert_eq!(TrustVerification::from_str("failed"), TrustVerification::Tampered);
+        assert_eq!(TrustVerification::from_str("FAILED"), TrustVerification::Tampered);
         assert_eq!(TrustVerification::from_str("missing"), TrustVerification::Missing);
         assert_eq!(
             TrustVerification::from_str("something-else"),

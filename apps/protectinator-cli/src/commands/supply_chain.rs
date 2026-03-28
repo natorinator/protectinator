@@ -699,7 +699,17 @@ fn run_trust(cmd: SupplyChainTrustCommands, format: &str) -> anyhow::Result<()> 
 
                 for s in &statuses {
                     if s.status != TrustVerification::Verified {
-                        println!("  {:>10}  {}", format!("{:?}", s.status).to_uppercase(), s.file);
+                        let label = match &s.status {
+                            TrustVerification::Tampered => "\x1b[91mTAMPERED\x1b[0m",
+                            TrustVerification::Missing => "\x1b[93mMISSING\x1b[0m",
+                            TrustVerification::Unsigned => "\x1b[33mUNSIGNED\x1b[0m",
+                            _ => "UNKNOWN",
+                        };
+                        print!("  {:>10}  {}", label, s.file);
+                        if let Some(ref reason) = s.reason {
+                            print!("  ({})", reason);
+                        }
+                        println!();
                     }
                 }
             }
