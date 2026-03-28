@@ -1,9 +1,10 @@
 //! Baseline verification
 
 use crate::database::{BaselineDatabase, StoredFileEntry};
+use crate::error::FimResult;
 use crate::hasher::{HashAlgorithm, Hasher};
+use crate::progress::ProgressReporter;
 use crate::scanner::FileType;
-use protectinator_core::{ProgressReporter, Result};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
@@ -150,7 +151,7 @@ impl BaselineVerifier {
     }
 
     /// Verify files against a baseline database
-    pub fn verify(&self, db: &BaselineDatabase) -> Result<Vec<FileVerification>> {
+    pub fn verify(&self, db: &BaselineDatabase) -> FimResult<Vec<FileVerification>> {
         self.verify_with_progress(db, None)
     }
 
@@ -159,7 +160,7 @@ impl BaselineVerifier {
         &self,
         db: &BaselineDatabase,
         progress: Option<&dyn ProgressReporter>,
-    ) -> Result<Vec<FileVerification>> {
+    ) -> FimResult<Vec<FileVerification>> {
         let baseline_files = db.get_all_files()?;
         let total_files = baseline_files.len();
 
@@ -446,7 +447,7 @@ impl VerificationSummary {
 pub fn diff_baselines(
     db1: &BaselineDatabase,
     db2: &BaselineDatabase,
-) -> Result<Vec<BaselineDiff>> {
+) -> FimResult<Vec<BaselineDiff>> {
     let files1 = db1.get_all_files()?;
     let files2 = db2.get_all_files()?;
 

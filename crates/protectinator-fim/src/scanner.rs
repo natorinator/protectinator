@@ -1,7 +1,8 @@
 //! File system scanner for FIM
 
+use crate::error::{FimError, FimResult};
 use crate::hasher::{HashAlgorithm, Hasher};
-use protectinator_core::{ProgressReporter, Result};
+use crate::progress::ProgressReporter;
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -70,13 +71,10 @@ impl FileScanner {
     }
 
     /// Add exclude patterns
-    pub fn with_excludes(mut self, patterns: &[String]) -> Result<Self> {
+    pub fn with_excludes(mut self, patterns: &[String]) -> FimResult<Self> {
         for pattern in patterns {
             let pat = glob::Pattern::new(pattern).map_err(|e| {
-                protectinator_core::ProtectinatorError::Config(format!(
-                    "Invalid glob pattern '{}': {}",
-                    pattern, e
-                ))
+                FimError::Config(format!("Invalid glob pattern '{}': {}", pattern, e))
             })?;
             self.exclude_patterns.push(pat);
         }
@@ -114,7 +112,7 @@ impl FileScanner {
     }
 
     /// Scan a directory and return file entries (sequential)
-    pub fn scan(&self, root: &Path) -> Result<Vec<FileEntry>> {
+    pub fn scan(&self, root: &Path) -> FimResult<Vec<FileEntry>> {
         self.scan_with_progress(root, None)
     }
 
@@ -123,7 +121,7 @@ impl FileScanner {
         &self,
         root: &Path,
         progress: Option<&dyn ProgressReporter>,
-    ) -> Result<Vec<FileEntry>> {
+    ) -> FimResult<Vec<FileEntry>> {
         let start_time = std::time::Instant::now();
 
         // First, collect all file paths
@@ -164,7 +162,7 @@ impl FileScanner {
     }
 
     /// Scan a directory with parallel hashing
-    pub fn scan_parallel(&self, root: &Path) -> Result<Vec<FileEntry>> {
+    pub fn scan_parallel(&self, root: &Path) -> FimResult<Vec<FileEntry>> {
         self.scan_parallel_with_progress(root, None)
     }
 
@@ -173,7 +171,7 @@ impl FileScanner {
         &self,
         root: &Path,
         progress: Option<Arc<dyn ProgressReporter>>,
-    ) -> Result<Vec<FileEntry>> {
+    ) -> FimResult<Vec<FileEntry>> {
         // First, collect all file paths
         let file_paths = self.collect_file_paths(root)?;
         let total_files = file_paths.len();
@@ -219,7 +217,7 @@ impl FileScanner {
     }
 
     /// Collect all file paths to scan
-    fn collect_file_paths(&self, root: &Path) -> Result<Vec<PathBuf>> {
+    fn collect_file_paths(&self, root: &Path) -> FimResult<Vec<PathBuf>> {
         let mut paths = Vec::new();
 
         let mut walker = WalkDir::new(root).follow_links(self.follow_symlinks);
@@ -278,7 +276,7 @@ impl FileScanner {
     }
 
     /// Process a single file and create a FileEntry
-    fn process_file(&self, path: &Path, hasher: &Hasher) -> Result<FileEntry> {
+    fn process_file(&self, path: &Path, hasher: &Hasher) -> FimResult<FileEntry> {
         let metadata = std::fs::metadata(path)?;
         let symlink_metadata = std::fs::symlink_metadata(path)?;
 

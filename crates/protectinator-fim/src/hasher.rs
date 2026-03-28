@@ -1,6 +1,6 @@
 //! File hashing utilities
 
-use protectinator_core::{ProtectinatorError, Result};
+use crate::error::{FimError, FimResult};
 use sha2::{Digest, Sha256, Sha512};
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -15,14 +15,14 @@ pub enum HashAlgorithm {
 }
 
 impl std::str::FromStr for HashAlgorithm {
-    type Err = ProtectinatorError;
+    type Err = FimError;
 
-    fn from_str(s: &str) -> Result<Self> {
+    fn from_str(s: &str) -> FimResult<Self> {
         match s.to_lowercase().as_str() {
             "sha256" | "sha-256" => Ok(HashAlgorithm::Sha256),
             "sha512" | "sha-512" => Ok(HashAlgorithm::Sha512),
             "blake3" => Ok(HashAlgorithm::Blake3),
-            _ => Err(ProtectinatorError::Config(format!("Unknown hash algorithm: {}", s))),
+            _ => Err(FimError::Config(format!("Unknown hash algorithm: {}", s))),
         }
     }
 }
@@ -54,7 +54,7 @@ impl Hasher {
     }
 
     /// Hash a file at the given path
-    pub fn hash_file(&self, path: &Path) -> Result<String> {
+    pub fn hash_file(&self, path: &Path) -> FimResult<String> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
 

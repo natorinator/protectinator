@@ -1,7 +1,7 @@
 //! SQLite database for storing file baselines
 
+use crate::error::{FimError, FimResult};
 use crate::scanner::{FileEntry, FileType};
-use protectinator_core::{ProtectinatorError, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 
@@ -12,9 +12,9 @@ pub struct BaselineDatabase {
 
 impl BaselineDatabase {
     /// Create a new baseline database
-    pub fn create(path: &Path) -> Result<Self> {
+    pub fn create(path: &Path) -> FimResult<Self> {
         let conn = Connection::open(path).map_err(|e| {
-            ProtectinatorError::Database(format!("Failed to create database: {}", e))
+            FimError::Database(format!("Failed to create database: {}", e))
         })?;
 
         conn.execute_batch(
@@ -43,40 +43,40 @@ impl BaselineDatabase {
             CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash);
             ",
         )
-        .map_err(|e| ProtectinatorError::Database(format!("Failed to create tables: {}", e)))?;
+        .map_err(|e| FimError::Database(format!("Failed to create tables: {}", e)))?;
 
         Ok(Self { conn })
     }
 
     /// Open an existing baseline database
-    pub fn open(path: &Path) -> Result<Self> {
+    pub fn open(path: &Path) -> FimResult<Self> {
         if !path.exists() {
-            return Err(ProtectinatorError::NotFound(format!(
+            return Err(FimError::NotFound(format!(
                 "Database not found: {}",
                 path.display()
             )));
         }
 
         let conn = Connection::open(path).map_err(|e| {
-            ProtectinatorError::Database(format!("Failed to open database: {}", e))
+            FimError::Database(format!("Failed to open database: {}", e))
         })?;
 
         Ok(Self { conn })
     }
 
     /// Set metadata
-    pub fn set_metadata(&self, key: &str, value: &str) -> Result<()> {
+    pub fn set_metadata(&self, key: &str, value: &str) -> FimResult<()> {
         self.conn
             .execute(
                 "INSERT OR REPLACE INTO metadata (key, value) VALUES (?1, ?2)",
                 params![key, value],
             )
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to set metadata: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to set metadata: {}", e)))?;
         Ok(())
     }
 
     /// Get metadata
-    pub fn get_metadata(&self, key: &str) -> Result<Option<String>> {
+    pub fn get_metadata(&self, key: &str) -> FimResult<Option<String>> {
         let result = self
             .conn
             .query_row(
@@ -85,13 +85,13 @@ impl BaselineDatabase {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to get metadata: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to get metadata: {}", e)))?;
 
         Ok(result)
     }
 
     /// Add a file entry to the baseline
-    pub fn add_file(&self, entry: &FileEntry) -> Result<()> {
+    pub fn add_file(&self, entry: &FileEntry) -> FimResult<()> {
         let scan_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -126,14 +126,14 @@ impl BaselineDatabase {
                     scan_time
                 ],
             )
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to add file: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to add file: {}", e)))?;
         Ok(())
     }
 
     /// Add multiple file entries in a transaction
-    pub fn add_files(&mut self, entries: &[FileEntry]) -> Result<()> {
+    pub fn add_files(&mut self, entries: &[FileEntry]) -> FimResult<()> {
         let tx = self.conn.transaction().map_err(|e| {
-            ProtectinatorError::Database(format!("Failed to start transaction: {}", e))
+            FimError::Database(format!("Failed to start transaction: {}", e))
         })?;
 
         {
@@ -143,7 +143,7 @@ impl BaselineDatabase {
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 )
                 .map_err(|e| {
-                    ProtectinatorError::Database(format!("Failed to prepare statement: {}", e))
+                    FimError::Database(format!("Failed to prepare statement: {}", e))
                 })?;
 
             let scan_time = std::time::SystemTime::now()
@@ -177,25 +177,25 @@ impl BaselineDatabase {
                     scan_time
                 ])
                 .map_err(|e| {
-                    ProtectinatorError::Database(format!("Failed to insert file: {}", e))
+                    FimError::Database(format!("Failed to insert file: {}", e))
                 })?;
             }
         }
 
         tx.commit().map_err(|e| {
-            ProtectinatorError::Database(format!("Failed to commit transaction: {}", e))
+            FimError::Database(format!("Failed to commit transaction: {}", e))
         })?;
 
         Ok(())
     }
 
     /// Get all file entries
-    pub fn get_all_files(&self) -> Result<Vec<StoredFileEntry>> {
+    pub fn get_all_files(&self) -> FimResult<Vec<StoredFileEntry>> {
         let mut stmt = self
             .conn
             .prepare("SELECT path, hash, size, modified, permissions, uid, gid, file_type, is_symlink, symlink_target FROM files")
             .map_err(|e| {
-                ProtectinatorError::Database(format!("Failed to prepare statement: {}", e))
+                FimError::Database(format!("Failed to prepare statement: {}", e))
             })?;
 
         let entries = stmt
@@ -220,15 +220,15 @@ impl BaselineDatabase {
                     symlink_target: row.get(9)?,
                 })
             })
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to query files: {}", e)))?
+            .map_err(|e| FimError::Database(format!("Failed to query files: {}", e)))?
             .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to collect files: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to collect files: {}", e)))?;
 
         Ok(entries)
     }
 
     /// Get a specific file entry by path
-    pub fn get_file(&self, path: &str) -> Result<Option<StoredFileEntry>> {
+    pub fn get_file(&self, path: &str) -> FimResult<Option<StoredFileEntry>> {
         let result = self
             .conn
             .query_row(
@@ -257,43 +257,43 @@ impl BaselineDatabase {
                 },
             )
             .optional()
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to get file: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to get file: {}", e)))?;
 
         Ok(result)
     }
 
     /// Get file count
-    pub fn file_count(&self) -> Result<usize> {
+    pub fn file_count(&self) -> FimResult<usize> {
         let count: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to count files: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to count files: {}", e)))?;
         Ok(count as usize)
     }
 
     /// Get total size of all files
-    pub fn total_size(&self) -> Result<u64> {
+    pub fn total_size(&self) -> FimResult<u64> {
         let size: i64 = self
             .conn
             .query_row("SELECT COALESCE(SUM(size), 0) FROM files", [], |row| row.get(0))
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to sum sizes: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to sum sizes: {}", e)))?;
         Ok(size as u64)
     }
 
     /// Delete a file entry
-    pub fn delete_file(&self, path: &str) -> Result<bool> {
+    pub fn delete_file(&self, path: &str) -> FimResult<bool> {
         let rows = self
             .conn
             .execute("DELETE FROM files WHERE path = ?1", params![path])
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to delete file: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to delete file: {}", e)))?;
         Ok(rows > 0)
     }
 
     /// Clear all file entries
-    pub fn clear(&self) -> Result<()> {
+    pub fn clear(&self) -> FimResult<()> {
         self.conn
             .execute("DELETE FROM files", [])
-            .map_err(|e| ProtectinatorError::Database(format!("Failed to clear files: {}", e)))?;
+            .map_err(|e| FimError::Database(format!("Failed to clear files: {}", e)))?;
         Ok(())
     }
 }

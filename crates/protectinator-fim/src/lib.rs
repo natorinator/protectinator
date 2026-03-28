@@ -30,32 +30,42 @@
 //! ```
 
 pub mod database;
+pub mod error;
 pub mod hasher;
+pub mod progress;
 pub mod scanner;
 pub mod verifier;
 
 pub use database::{BaselineDatabase, StoredFileEntry};
+pub use error::{FimError, FimResult};
 pub use hasher::{HashAlgorithm, Hasher};
+pub use progress::ProgressReporter;
 pub use scanner::{FileEntry, FileScanner, FileType, ScanStats};
 pub use verifier::{
     diff_baselines, BaselineDiff, BaselineVerifier, DiffType, FileVerification,
     FimProgressCallback, FimProgressInfo, VerificationResult, VerificationSummary, VerifierConfig,
 };
 
+#[cfg(feature = "provider")]
 use protectinator_core::{
-    Applicability, CheckContext, CheckProvider, Finding, FindingSource, Result, SecurityCheck,
+    Applicability, CheckContext, CheckProvider, Finding, FindingSource, SecurityCheck,
     Severity,
 };
 use std::path::PathBuf;
+#[cfg(feature = "provider")]
 use std::sync::Arc;
 
 /// File integrity monitoring check provider
+///
+/// Only available with the `provider` feature (enabled by default in protectinator).
+#[cfg(feature = "provider")]
 pub struct FimProvider {
     baseline_path: Option<PathBuf>,
     scan_paths: Vec<PathBuf>,
     algorithm: HashAlgorithm,
 }
 
+#[cfg(feature = "provider")]
 impl FimProvider {
     /// Create a new FIM provider
     pub fn new() -> Self {
@@ -85,12 +95,14 @@ impl FimProvider {
     }
 }
 
+#[cfg(feature = "provider")]
 impl Default for FimProvider {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "provider")]
 impl CheckProvider for FimProvider {
     fn name(&self) -> &str {
         "fim"
@@ -110,17 +122,18 @@ impl CheckProvider for FimProvider {
         checks
     }
 
-    fn refresh(&mut self) -> Result<()> {
+    fn refresh(&mut self) -> protectinator_core::Result<()> {
         Ok(())
     }
 }
 
-/// Security check that verifies files against a baseline
+#[cfg(feature = "provider")]
 struct FimVerificationCheck {
     baseline_path: PathBuf,
     algorithm: HashAlgorithm,
 }
 
+#[cfg(feature = "provider")]
 impl SecurityCheck for FimVerificationCheck {
     fn id(&self) -> &str {
         "fim-verification"
@@ -149,7 +162,7 @@ impl SecurityCheck for FimVerificationCheck {
         }
     }
 
-    fn execute(&self, _ctx: &dyn CheckContext) -> Result<Vec<Finding>> {
+    fn execute(&self, _ctx: &dyn CheckContext) -> protectinator_core::Result<Vec<Finding>> {
         let db = BaselineDatabase::open(&self.baseline_path)?;
         let verifier = BaselineVerifier::new(self.algorithm);
         let results = verifier.verify(&db)?;
@@ -170,7 +183,7 @@ impl SecurityCheck for FimVerificationCheck {
     }
 }
 
-/// Convert a verification result to a security finding
+#[cfg(feature = "provider")]
 fn verification_to_finding(result: &FileVerification) -> Option<Finding> {
     match &result.result {
         VerificationResult::Match => None,
