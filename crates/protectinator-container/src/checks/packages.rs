@@ -253,6 +253,30 @@ fn check_security_sensitive(packages: &[InstalledPackage], findings: &mut Vec<Fi
     }
 }
 
+/// Detect the Debian/Ubuntu codename for remediation messages
+fn detect_codename(fs: &ContainerFs) -> String {
+    let os_info = fs.detect_os();
+    if let Some(ref info) = os_info {
+        // Try to get VERSION_CODENAME from os-release
+        if let Ok(content) = fs.read_to_string("/etc/os-release") {
+            for line in content.lines() {
+                if let Some(codename) = line.strip_prefix("VERSION_CODENAME=") {
+                    return codename.trim().to_string();
+                }
+            }
+        }
+        // Fallback: map known version IDs to codenames
+        match (info.id.as_str(), info.version.as_str()) {
+            ("debian", "13") => return "trixie".to_string(),
+            ("debian", "12") => return "bookworm".to_string(),
+            ("debian", "11") => return "bullseye".to_string(),
+            ("ubuntu", v) => return v.to_string(),
+            _ => {}
+        }
+    }
+    "bookworm".to_string() // safe fallback
+}
+
 /// Check if there are pending security updates by examining apt lists
 fn check_pending_security_updates(fs: &ContainerFs, findings: &mut Vec<Finding>) {
     // Check if apt lists exist at all (indicates apt update has been run)
@@ -295,11 +319,12 @@ fn check_pending_security_updates(fs: &ContainerFs, findings: &mut Vec<Finding>)
         .unwrap_or(false);
 
     if !has_security_lists {
+        let codename = detect_codename(fs);
         findings.push(
             Finding::new(
                 "container-apt-no-security",
                 "No security repository configured",
-                "The container's apt sources do not appear to include a security repository. \
+                "The apt sources do not appear to include a security repository. \
                  Security updates may not be available.",
                 Severity::Medium,
                 FindingSource::Hardening {
@@ -307,10 +332,11 @@ fn check_pending_security_updates(fs: &ContainerFs, findings: &mut Vec<Finding>)
                     category: "packages".to_string(),
                 },
             )
-            .with_remediation(
+            .with_remediation(format!(
                 "Add the security repository to /etc/apt/sources.list \
-                 (e.g., 'deb http://security.debian.org/debian-security bookworm-security main')",
-            ),
+                 (e.g., 'deb http://security.debian.org/debian-security {}-security main')",
+                codename
+            )),
         );
     }
 

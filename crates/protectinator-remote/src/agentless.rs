@@ -161,16 +161,16 @@ fn gather_remote_data(host: &RemoteHost, tmp: &Path) -> Result<(), String> {
     // SUID binaries — gather and create marker files
     gather_suid_data(host, tmp);
 
-    // Apt lists directory (package freshness check)
+    // Apt lists directory (package freshness + security repo check)
     let apt_lists = ssh::ssh_exec_optional(
         host,
-        "ls -1 /var/lib/apt/lists/ 2>/dev/null | head -20",
+        "ls -1 /var/lib/apt/lists/ 2>/dev/null",
     );
     if !apt_lists.trim().is_empty() {
         let lists_dir = tmp.join("var/lib/apt/lists");
         std::fs::create_dir_all(&lists_dir).ok();
-        // Create marker files so the freshness check sees non-empty dir
-        for name in apt_lists.lines().take(5) {
+        // Create marker files for all entries so security repo detection works
+        for name in apt_lists.lines() {
             let name = name.trim();
             if !name.is_empty() {
                 std::fs::write(lists_dir.join(name), "").ok();
