@@ -56,6 +56,18 @@ pub fn scan(
         }
     }
 
+    // Check disk space from gathered data
+    let df_data = std::fs::read_to_string(tmp.path().join("protectinator/df_root")).unwrap_or_default();
+    if let Some(disk_finding) = check_disk_space(host, df_data.trim()) {
+        let mut f = disk_finding;
+        f.source = FindingSource::Remote {
+            host: host.hostname.clone(),
+            scan_mode: "agentless".to_string(),
+            inner_source: Box::new(f.source.clone()),
+        };
+        results.scan_results.add_finding(f);
+    }
+
     // Gather additional IOC data that container checks don't cover
     let ioc_findings = gather_ioc_indicators(host);
     for mut finding in ioc_findings {
@@ -83,6 +95,10 @@ pub fn scan(
 /// Gather system data from a remote host and write to a temp directory
 fn gather_remote_data(host: &RemoteHost, tmp: &Path) -> Result<(), String> {
     info!("Gathering system data from {}", host.display_name());
+
+    // Disk space (do this first — fast command, critical info)
+    let df_output = ssh::ssh_exec_optional(host, "df -P / 2>/dev/null | tail -1");
+    write_gathered(tmp, "protectinator/df_root", &df_output);
 
     // OS release
     if let Some(content) = ssh::read_remote_file(host, "/etc/os-release") {
@@ -388,6 +404,136 @@ fn gather_ioc_indicators(host: &RemoteHost) -> Vec<Finding> {
     }
 
     findings
+}
+
+/// Check disk space and generate findings for critical/low space
+fn check_disk_space(host: &RemoteHost, df_line: &str) -> Option<Finding> {
+    // df -P output: Filesystem 1024-blocks Used Available Capacity Mounted
+    let fields: Vec<&str> = df_line.split_whitespace().collect();
+    if fields.len() < 5 {
+        return None;
+    }
+
+    let capacity_str = fields[4].trim_end_matches('%');
+    let usage_pct: u32 = capacity_str.parse().ok()?;
+    let avail_kb: u64 = fields[3].parse().ok()?;
+    let total_kb: u64 = fields[1].parse().ok()?;
+
+    let avail_human = format_size(avail_kb * 1024);
+    let total_human = format_size(total_kb * 1024);
+
+    if usage_pct >= 99 {
+        // Get top space consumers
+        let top_dirs = ssh::ssh_exec_optional(
+            host,
+            "for d in /var/log /var/lib /var/cache /home /usr /tmp /opt /srv; do s=$(du -sx \"$d\" 2>/dev/null | cut -f1); [ -n \"$s\" ] && echo \"$s $d\"; done | sort -rn | head -5",
+        );
+        let mut desc = format!(
+            "Root filesystem is {}% full ({} available of {}). System operations may fail.",
+            usage_pct, avail_human, total_human
+        );
+        if !top_dirs.trim().is_empty() {
+            desc.push_str("\n\nTop space consumers:");
+            for line in top_dirs.lines().take(5) {
+                let parts: Vec<&str> = line.splitn(2, ' ').collect();
+                if parts.len() == 2 {
+                    let kb: u64 = parts[0].parse().unwrap_or(0);
+                    desc.push_str(&format!("\n  {} — {}", parts[1], format_size(kb * 1024)));
+                }
+            }
+        }
+
+        // Check for easy wins
+        let journal_size = ssh::ssh_exec_optional(
+            host,
+            "du -s /var/log/journal 2>/dev/null | cut -f1",
+        );
+        let journal_kb: u64 = journal_size.trim().parse().unwrap_or(0);
+        let apt_cache = ssh::ssh_exec_optional(
+            host,
+            "du -s /var/cache/apt 2>/dev/null | cut -f1",
+        );
+        let apt_kb: u64 = apt_cache.trim().parse().unwrap_or(0);
+
+        let mut remediation = String::new();
+        if journal_kb > 100_000 {
+            remediation.push_str(&format!(
+                "journalctl --vacuum-size=100M (reclaim ~{}); ",
+                format_size((journal_kb - 100_000) * 1024)
+            ));
+        }
+        if apt_kb > 50_000 {
+            remediation.push_str(&format!(
+                "apt clean (reclaim ~{}); ",
+                format_size(apt_kb * 1024)
+            ));
+        }
+        if remediation.is_empty() {
+            remediation = "Investigate disk usage with 'du -sh /*' and remove unnecessary files.".to_string();
+        }
+
+        Some(
+            Finding::new(
+                "remote-disk-critical",
+                format!("Disk critically full: {}% ({} free)", usage_pct, avail_human),
+                desc,
+                protectinator_core::Severity::Critical,
+                FindingSource::Hardening {
+                    check_id: "remote-disk-space".to_string(),
+                    category: "availability".to_string(),
+                },
+            )
+            .with_resource(format!("/ — {} of {}", avail_human, total_human))
+            .with_remediation(remediation),
+        )
+    } else if usage_pct >= 90 {
+        Some(
+            Finding::new(
+                "remote-disk-warning",
+                format!("Disk nearly full: {}% ({} free)", usage_pct, avail_human),
+                format!(
+                    "Root filesystem is {}% full with {} remaining of {}. Monitor and plan cleanup.",
+                    usage_pct, avail_human, total_human
+                ),
+                protectinator_core::Severity::High,
+                FindingSource::Hardening {
+                    check_id: "remote-disk-space".to_string(),
+                    category: "availability".to_string(),
+                },
+            )
+            .with_resource(format!("/ — {} of {}", avail_human, total_human))
+            .with_remediation("Investigate disk usage with 'du -sh /*' and clean up old logs, caches, and unused packages."),
+        )
+    } else if usage_pct >= 80 {
+        Some(Finding::new(
+            "remote-disk-notice",
+            format!("Disk usage: {}% ({} free)", usage_pct, avail_human),
+            format!(
+                "Root filesystem is {}% full with {} remaining of {}.",
+                usage_pct, avail_human, total_human
+            ),
+            protectinator_core::Severity::Medium,
+            FindingSource::Hardening {
+                check_id: "remote-disk-space".to_string(),
+                category: "availability".to_string(),
+            },
+        ))
+    } else {
+        None
+    }
+}
+
+/// Format bytes into human-readable size
+fn format_size(bytes: u64) -> String {
+    if bytes >= 1_073_741_824 {
+        format!("{:.1}G", bytes as f64 / 1_073_741_824.0)
+    } else if bytes >= 1_048_576 {
+        format!("{:.0}M", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.0}K", bytes as f64 / 1024.0)
+    } else {
+        format!("{}B", bytes)
+    }
 }
 
 /// Write gathered data to the temp directory, creating parent dirs as needed
