@@ -4,6 +4,7 @@
 //! Uses batch queries to efficiently check large dependency sets.
 
 use crate::types::{Ecosystem, PackageEntry};
+use chrono::Utc;
 use protectinator_core::Severity;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -28,6 +29,9 @@ pub struct OsvVulnerability {
     pub aliases: Vec<String>,
     #[serde(default)]
     pub severity: Vec<OsvSeverity>,
+    /// CWE IDs from database_specific (e.g., ["CWE-79", "CWE-89"])
+    #[serde(default)]
+    pub cwe_ids: Vec<String>,
     /// Package name that triggered this vulnerability match
     pub package_name: String,
     /// Package version that triggered this vulnerability match
@@ -85,6 +89,7 @@ impl OsvClient {
     ///
     /// Batches requests in groups of 1000 (OSV API limit) and returns a
     /// flattened list of vulnerabilities with originating package info attached.
+    /// GHSA advisories are enriched with CVSS/CWE data from individual lookups.
     pub fn query_batch(
         &self,
         packages: &[PackageEntry],
@@ -96,7 +101,95 @@ impl OsvClient {
             all_vulns.extend(vulns);
         }
 
+        // Enrich GHSA advisories with CVSS/CWE classification data
+        self.enrich_vulns(&mut all_vulns);
+
         Ok(all_vulns)
+    }
+
+    /// Fetch full details for GHSA advisories to get CVSS vectors and CWE IDs.
+    /// Uses a SQLite cache to avoid redundant network requests.
+    fn enrich_vulns(&self, vulns: &mut [OsvVulnerability]) {
+        let to_enrich: Vec<usize> = vulns
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.severity.is_empty() && v.id.starts_with("GHSA-"))
+            .map(|(i, _)| i)
+            .collect();
+
+        if to_enrich.is_empty() {
+            return;
+        }
+
+        let cache = open_classification_cache();
+        let mut to_fetch = Vec::new();
+
+        // Check cache first
+        for &idx in &to_enrich {
+            if let Some(ref conn) = cache {
+                if let Some((sev_type, sev_score, cwes)) = get_cached_classification(conn, &vulns[idx].id) {
+                    if let (Some(t), Some(s)) = (&sev_type, &sev_score) {
+                        vulns[idx].severity.push(OsvSeverity {
+                            severity_type: t.clone(),
+                            score: s.clone(),
+                        });
+                    }
+                    vulns[idx].cwe_ids = cwes;
+                    continue;
+                }
+            }
+            to_fetch.push(idx);
+        }
+
+        for idx in to_fetch {
+            let url = format!("https://api.osv.dev/v1/vulns/{}", vulns[idx].id);
+            let resp = match self.agent.get(&url).call() {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            let body: serde_json::Value = match resp.into_json() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let mut sev_type = None;
+            let mut sev_score = None;
+            let mut cwes = Vec::new();
+
+            if let Some(sev_arr) = body.get("severity").and_then(|v| v.as_array()) {
+                if let Some(sev) = sev_arr.first() {
+                    if let (Some(t), Some(s)) = (
+                        sev.get("type").and_then(|v| v.as_str()),
+                        sev.get("score").and_then(|v| v.as_str()),
+                    ) {
+                        sev_type = Some(t.to_string());
+                        sev_score = Some(s.to_string());
+                        vulns[idx].severity.push(OsvSeverity {
+                            severity_type: t.to_string(),
+                            score: s.to_string(),
+                        });
+                    }
+                }
+            }
+
+            if let Some(cwe_arr) = body
+                .get("database_specific")
+                .and_then(|ds| ds.get("cwe_ids"))
+                .and_then(|v| v.as_array())
+            {
+                for cwe in cwe_arr {
+                    if let Some(s) = cwe.as_str() {
+                        cwes.push(s.to_string());
+                        vulns[idx].cwe_ids.push(s.to_string());
+                    }
+                }
+            }
+
+            if let Some(ref conn) = cache {
+                set_cached_classification(conn, &vulns[idx].id, &sev_type, &sev_score, &cwes);
+            }
+        }
     }
 
     /// Send a single batch request for up to 1000 packages
@@ -140,12 +233,17 @@ impl OsvClient {
             if let Some(result_vulns) = result.vulns {
                 let pkg = &packages[idx];
                 for raw_vuln in result_vulns {
+                    let cwe_ids = raw_vuln
+                        .database_specific
+                        .map(|ds| ds.cwe_ids)
+                        .unwrap_or_default();
                     vulns.push(OsvVulnerability {
                         id: raw_vuln.id,
                         summary: raw_vuln.summary,
                         details: raw_vuln.details,
                         aliases: raw_vuln.aliases,
                         severity: raw_vuln.severity,
+                        cwe_ids,
                         package_name: pkg.name.clone(),
                         package_version: pkg.version.clone(),
                         ecosystem: pkg.ecosystem,
@@ -305,6 +403,152 @@ fn score_cvss_v3_vector(vector: &str) -> Option<f64> {
     Some((base * 10.0).ceil() / 10.0)
 }
 
+/// Classify a vulnerability based on CVSS vector metrics and CWE IDs.
+///
+/// Returns a short tag string like "[Remote/RCE]", "[Local/DoS]", "[Remote/Injection]".
+/// Returns empty string if no classification can be determined.
+pub fn classify_vulnerability(severities: &[OsvSeverity], cwe_ids: &[String]) -> String {
+    let mut tags = Vec::new();
+
+    // Extract CVSS vector metrics
+    let vector = severities
+        .iter()
+        .find(|s| s.severity_type == "CVSS_V3" || s.severity_type == "CVSS_V4")
+        .map(|s| &s.score);
+
+    if let Some(vec_str) = vector {
+        let metrics: std::collections::HashMap<&str, &str> = vec_str
+            .split('/')
+            .filter_map(|p| p.split_once(':'))
+            .collect();
+
+        // Attack vector
+        match metrics.get("AV") {
+            Some(&"N") => tags.push("Remote"),
+            Some(&"A") => tags.push("Adjacent"),
+            Some(&"L") => tags.push("Local"),
+            Some(&"P") => tags.push("Physical"),
+            _ => {}
+        }
+
+        // Impact type from C/I/A metrics (v3 or v4)
+        let c = metrics.get("VC").or(metrics.get("C")).copied().unwrap_or("N");
+        let i = metrics.get("VI").or(metrics.get("I")).copied().unwrap_or("N");
+        let a = metrics.get("VA").or(metrics.get("A")).copied().unwrap_or("N");
+        let scope_change = metrics.get("S").copied() == Some("C");
+
+        let has_conf = c == "H" || c == "L";
+        let has_integ = i == "H" || i == "L";
+        let has_avail = a == "H" || a == "L";
+
+        if !has_conf && !has_integ && has_avail {
+            tags.push("DoS");
+        } else if has_conf && has_integ && has_avail && scope_change {
+            tags.push("RCE");
+        } else if has_conf && has_integ && !has_avail {
+            tags.push("Data");
+        } else if !has_conf && has_integ && !has_avail {
+            tags.push("Tampering");
+        } else if has_conf && !has_integ && !has_avail {
+            tags.push("InfoLeak");
+        }
+    }
+
+    // CWE-based classification
+    for cwe in cwe_ids {
+        match cwe.as_str() {
+            "CWE-78" | "CWE-94" | "CWE-77" | "CWE-917" | "CWE-502" => {
+                if !tags.contains(&"RCE") { tags.push("RCE"); }
+            }
+            "CWE-89" | "CWE-79" | "CWE-91" | "CWE-611" => {
+                if !tags.contains(&"Injection") { tags.push("Injection"); }
+            }
+            "CWE-269" | "CWE-250" | "CWE-266" | "CWE-732" => {
+                if !tags.contains(&"PrivEsc") { tags.push("PrivEsc"); }
+            }
+            "CWE-287" | "CWE-306" | "CWE-862" | "CWE-863" | "CWE-284" => {
+                if !tags.contains(&"AuthBypass") { tags.push("AuthBypass"); }
+            }
+            "CWE-400" | "CWE-770" | "CWE-674" | "CWE-835" => {
+                if !tags.contains(&"DoS") { tags.push("DoS"); }
+            }
+            "CWE-119" | "CWE-120" | "CWE-122" | "CWE-125" | "CWE-787" | "CWE-416" | "CWE-190" => {
+                if !tags.contains(&"MemCorrupt") { tags.push("MemCorrupt"); }
+            }
+            "CWE-22" | "CWE-23" | "CWE-36" => {
+                if !tags.contains(&"PathTraversal") { tags.push("PathTraversal"); }
+            }
+            "CWE-200" | "CWE-209" | "CWE-532" => {
+                if !tags.contains(&"InfoLeak") { tags.push("InfoLeak"); }
+            }
+            "CWE-295" | "CWE-326" | "CWE-327" | "CWE-328" | "CWE-330" => {
+                if !tags.contains(&"Crypto") { tags.push("Crypto"); }
+            }
+            _ => {}
+        }
+    }
+
+    if tags.is_empty() {
+        return String::new();
+    }
+
+    format!("[{}]", tags.join("/"))
+}
+
+// --- Classification cache (shared SQLite) ---
+
+fn open_classification_cache() -> Option<rusqlite::Connection> {
+    let home = std::env::var("HOME").ok()?;
+    let db_path = std::path::PathBuf::from(home)
+        .join(".local/share/protectinator/vuln_cache.db");
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).ok()?;
+    }
+    let conn = rusqlite::Connection::open(&db_path).ok()?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS vuln_classification (
+            advisory_id TEXT PRIMARY KEY,
+            severity_type TEXT,
+            severity_score TEXT,
+            cwe_ids TEXT,
+            cached_at TEXT NOT NULL
+        )"
+    ).ok()?;
+    Some(conn)
+}
+
+fn get_cached_classification(
+    conn: &rusqlite::Connection,
+    advisory_id: &str,
+) -> Option<(Option<String>, Option<String>, Vec<String>)> {
+    let mut stmt = conn.prepare(
+        "SELECT severity_type, severity_score, cwe_ids FROM vuln_classification WHERE advisory_id = ?1"
+    ).ok()?;
+    stmt.query_row(rusqlite::params![advisory_id], |row| {
+        let cwe_str: Option<String> = row.get(2)?;
+        let cwes = cwe_str
+            .map(|s| s.split(',').filter(|c| !c.is_empty()).map(String::from).collect())
+            .unwrap_or_default();
+        Ok((row.get(0)?, row.get(1)?, cwes))
+    }).ok()
+}
+
+fn set_cached_classification(
+    conn: &rusqlite::Connection,
+    advisory_id: &str,
+    sev_type: &Option<String>,
+    sev_score: &Option<String>,
+    cwe_ids: &[String],
+) {
+    let cwe_str = cwe_ids.join(",");
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = conn.execute(
+        "INSERT OR REPLACE INTO vuln_classification (advisory_id, severity_type, severity_score, cwe_ids, cached_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![advisory_id, sev_type, sev_score, cwe_str, now],
+    );
+}
+
 // --- Internal deserialization types for OSV API responses ---
 
 #[derive(Deserialize)]
@@ -326,6 +570,14 @@ struct RawVulnerability {
     aliases: Vec<String>,
     #[serde(default)]
     severity: Vec<OsvSeverity>,
+    #[serde(default)]
+    database_specific: Option<RawDatabaseSpecific>,
+}
+
+#[derive(Deserialize)]
+struct RawDatabaseSpecific {
+    #[serde(default)]
+    cwe_ids: Vec<String>,
 }
 
 #[cfg(test)]

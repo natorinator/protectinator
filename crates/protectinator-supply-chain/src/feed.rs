@@ -3,7 +3,7 @@
 //! Polls the OSV API for new advisories affecting packages in stored SBOMs,
 //! compares against previously known advisories, and reports only net-new alerts.
 
-use crate::osv::{map_cvss_to_severity, OsvClient, OsvVulnerability};
+use crate::osv::{classify_vulnerability, map_cvss_to_severity, OsvClient, OsvVulnerability};
 use crate::types::{Ecosystem, PackageEntry};
 use chrono::Utc;
 use rusqlite::{params, Connection};
@@ -34,6 +34,7 @@ pub struct NewAdvisory {
     pub advisory_id: String,
     pub summary: Option<String>,
     pub severity: String,
+    pub classification: String,
     pub package_name: String,
     pub package_version: String,
     pub ecosystem: String,
@@ -217,10 +218,13 @@ impl FeedMonitor {
                     repos.join(", ")
                 };
 
+                let classification = classify_vulnerability(&vuln.severity, &vuln.cwe_ids);
+
                 new_advisories.push(NewAdvisory {
                     advisory_id: vuln.id.clone(),
                     summary: vuln.summary.clone(),
                     severity: severity_str,
+                    classification,
                     package_name: vuln.package_name.clone(),
                     package_version: vuln.package_version.clone(),
                     ecosystem: vuln.ecosystem.to_string(),
@@ -300,10 +304,13 @@ impl FeedMonitor {
                     repos.join(", ")
                 };
 
+                let classification = classify_vulnerability(&vuln.severity, &vuln.cwe_ids);
+
                 new_advisories.push(NewAdvisory {
                     advisory_id: vuln.id.clone(),
                     summary: vuln.summary.clone(),
                     severity: severity_str,
+                    classification,
                     package_name: vuln.package_name.clone(),
                     package_version: vuln.package_version.clone(),
                     ecosystem: vuln.ecosystem.to_string(),

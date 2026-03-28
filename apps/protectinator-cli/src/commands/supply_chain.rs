@@ -1631,9 +1631,14 @@ fn run_watch(args: SupplyChainWatchArgs, format: &str) -> anyhow::Result<()> {
                     "medium" => "\x1b[33m",
                     _ => "\x1b[36m",
                 };
+                let class_str = if adv.classification.is_empty() {
+                    String::new()
+                } else {
+                    format!(" \x1b[36m{}\x1b[0m", adv.classification)
+                };
                 println!(
-                    "    {}[{}]\x1b[0m {} {}@{}",
-                    sev_color, adv.severity, adv.advisory_id, adv.package_name, adv.package_version
+                    "    {}[{}]\x1b[0m {}{} {}@{}",
+                    sev_color, adv.severity, adv.advisory_id, class_str, adv.package_name, adv.package_version
                 );
                 if let Some(ref summary) = adv.summary {
                     println!("      {}", summary);
