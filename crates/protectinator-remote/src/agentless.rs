@@ -298,6 +298,17 @@ fn gather_suid_data(host: &RemoteHost, tmp: &Path) {
 fn gather_ioc_indicators(host: &RemoteHost) -> Vec<Finding> {
     let mut findings = Vec::new();
 
+    // Check uptime and reboot-needed
+    let uptime_findings = check_uptime(host);
+    for mut f in uptime_findings {
+        f.source = FindingSource::Remote {
+            host: host.hostname.clone(),
+            scan_mode: "agentless".to_string(),
+            inner_source: Box::new(f.source.clone()),
+        };
+        findings.push(f);
+    }
+
     // Check for suspicious hidden files in system directories
     let hidden = ssh::ssh_exec_optional(
         host,
@@ -399,6 +410,115 @@ fn gather_ioc_indicators(host: &RemoteHost) -> Vec<Finding> {
             FindingSource::Hardening {
                 check_id: "remote-network-exposure".to_string(),
                 category: "network".to_string(),
+            },
+        ));
+    }
+
+    findings
+}
+
+/// Check system uptime and whether a reboot is needed
+fn check_uptime(host: &RemoteHost) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    // Get uptime in seconds from /proc/uptime
+    let uptime_str = ssh::ssh_exec_optional(host, "cat /proc/uptime 2>/dev/null");
+    let uptime_secs: f64 = uptime_str
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+
+    if uptime_secs <= 0.0 {
+        return findings;
+    }
+
+    let uptime_days = (uptime_secs / 86400.0) as u64;
+
+    // Check if reboot is needed (Debian/Ubuntu)
+    let reboot_required = ssh::ssh_exec_optional(
+        host,
+        "test -f /var/run/reboot-required && cat /var/run/reboot-required 2>/dev/null",
+    );
+
+    // Check for packages requiring restart
+    let needs_restart = ssh::ssh_exec_optional(
+        host,
+        "cat /var/run/reboot-required.pkgs 2>/dev/null",
+    );
+
+    let uptime_human = if uptime_days >= 365 {
+        let years = uptime_days / 365;
+        let remaining_days = uptime_days % 365;
+        format!("{} year{}, {} days", years, if years > 1 { "s" } else { "" }, remaining_days)
+    } else {
+        format!("{} days", uptime_days)
+    };
+
+    if !reboot_required.trim().is_empty() {
+        let mut desc = format!(
+            "System has been up for {} and requires a reboot. {}",
+            uptime_human,
+            reboot_required.trim()
+        );
+        if !needs_restart.trim().is_empty() {
+            let pkg_count = needs_restart.lines().count();
+            desc.push_str(&format!(
+                "\n\n{} package(s) requiring restart:\n{}",
+                pkg_count,
+                needs_restart
+                    .lines()
+                    .take(10)
+                    .map(|l| format!("  {}", l.trim()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
+        }
+
+        findings.push(
+            Finding::new(
+                "remote-reboot-required",
+                format!("Reboot required (uptime: {})", uptime_human),
+                desc,
+                protectinator_core::Severity::High,
+                FindingSource::Hardening {
+                    check_id: "remote-uptime".to_string(),
+                    category: "availability".to_string(),
+                },
+            )
+            .with_remediation("Schedule a reboot to apply pending kernel and system updates."),
+        );
+    } else if uptime_days > 365 {
+        findings.push(
+            Finding::new(
+                "remote-uptime-excessive",
+                format!("System uptime: {} — consider rebooting", uptime_human),
+                format!(
+                    "System has been running for {} without a reboot. \
+                     Kernel security patches and major system updates require a reboot to take effect. \
+                     Processes may be running outdated binaries.",
+                    uptime_human
+                ),
+                protectinator_core::Severity::Medium,
+                FindingSource::Hardening {
+                    check_id: "remote-uptime".to_string(),
+                    category: "availability".to_string(),
+                },
+            )
+            .with_remediation("Schedule a maintenance reboot to apply accumulated system updates."),
+        );
+    } else if uptime_days > 90 {
+        findings.push(Finding::new(
+            "remote-uptime-notice",
+            format!("System uptime: {}", uptime_human),
+            format!(
+                "System has been running for {}. Check if any pending updates require a reboot.",
+                uptime_human
+            ),
+            protectinator_core::Severity::Info,
+            FindingSource::Hardening {
+                check_id: "remote-uptime".to_string(),
+                category: "availability".to_string(),
             },
         ));
     }
