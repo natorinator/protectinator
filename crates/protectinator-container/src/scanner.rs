@@ -8,6 +8,7 @@ use crate::checks::packages::PackageCheck;
 use crate::checks::persistence::PersistenceCheck;
 use crate::checks::rootkit::RootkitCheck;
 use crate::checks::suid::SuidCheck;
+use crate::checks::vulnerability::VulnerabilityCheck;
 use crate::checks::ContainerCheck;
 use crate::filesystem::ContainerFs;
 use crate::types::{Container, ContainerScanResults};
@@ -22,6 +23,7 @@ pub struct ContainerScanner {
     skip_hardening: bool,
     skip_os_version: bool,
     skip_suid: bool,
+    skip_vulnerability: bool,
 }
 
 impl ContainerScanner {
@@ -34,6 +36,7 @@ impl ContainerScanner {
             skip_hardening: false,
             skip_os_version: false,
             skip_suid: false,
+            skip_vulnerability: false,
         }
     }
 
@@ -70,6 +73,12 @@ impl ContainerScanner {
     /// Skip SUID/SGID binary audit
     pub fn skip_suid(mut self, skip: bool) -> Self {
         self.skip_suid = skip;
+        self
+    }
+
+    /// Skip live CVE vulnerability scanning (requires network)
+    pub fn skip_vulnerability(mut self, skip: bool) -> Self {
+        self.skip_vulnerability = skip;
         self
     }
 
@@ -160,6 +169,9 @@ impl ContainerScanner {
         }
         if !self.skip_suid {
             checks.push(Box::new(SuidCheck));
+        }
+        if !self.skip_vulnerability {
+            checks.push(Box::new(VulnerabilityCheck));
         }
 
         checks

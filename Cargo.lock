@@ -884,7 +884,9 @@ dependencies = [
  "protectinator-core",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
+ "ureq",
  "walkdir",
 ]
 

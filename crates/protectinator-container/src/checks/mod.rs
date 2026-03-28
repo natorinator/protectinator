@@ -9,6 +9,7 @@ pub mod packages;
 pub mod persistence;
 pub mod rootkit;
 pub mod suid;
+pub mod vulnerability;
 
 use crate::filesystem::ContainerFs;
 use protectinator_core::Finding;

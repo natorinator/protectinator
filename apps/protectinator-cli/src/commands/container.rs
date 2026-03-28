@@ -69,6 +69,14 @@ pub struct ContainerScanArgs {
     /// Skip SUID/SGID binary audit
     #[arg(long)]
     skip_suid: bool,
+
+    /// Skip live CVE vulnerability scanning (requires network)
+    #[arg(long)]
+    skip_vulnerability: bool,
+
+    /// Offline mode (skips CVE vulnerability scanning)
+    #[arg(long)]
+    offline: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -243,7 +251,8 @@ fn run_scan(args: ContainerScanArgs, format: &str) -> anyhow::Result<()> {
         .skip_persistence(args.skip_persistence)
         .skip_hardening(args.skip_hardening)
         .skip_os_version(args.skip_os_version)
-        .skip_suid(args.skip_suid);
+        .skip_suid(args.skip_suid)
+        .skip_vulnerability(args.skip_vulnerability || args.offline);
 
     let min_severity: Severity = args.min_severity.into();
 
