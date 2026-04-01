@@ -381,6 +381,17 @@ fn gather_ioc_indicators(host: &RemoteHost) -> Vec<Finding> {
         ));
     }
 
+    // Check clock drift
+    let drift_findings = check_clock_drift(host);
+    for mut f in drift_findings {
+        f.source = FindingSource::Remote {
+            host: host.hostname.clone(),
+            scan_mode: "agentless".to_string(),
+            inner_source: Box::new(f.source.clone()),
+        };
+        findings.push(f);
+    }
+
     // Check for unusual listening ports
     let listeners = ssh::ssh_exec_optional(
         host,
@@ -521,6 +532,119 @@ fn check_uptime(host: &RemoteHost) -> Vec<Finding> {
                 category: "availability".to_string(),
             },
         ));
+    }
+
+    findings
+}
+
+/// Check clock drift between remote host and local system
+fn check_clock_drift(host: &RemoteHost) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    // Get remote epoch time
+    let remote_epoch_str = ssh::ssh_exec_optional(host, "date +%s");
+    let remote_epoch: i64 = match remote_epoch_str.trim().parse() {
+        Ok(t) => t,
+        Err(_) => return findings, // Can't parse, skip
+    };
+
+    // Get local epoch time
+    let local_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    if local_epoch == 0 {
+        return findings;
+    }
+
+    let drift_secs = (remote_epoch - local_epoch).abs();
+
+    // Check NTP status on the remote host
+    let ntp_status = ssh::ssh_exec_optional(
+        host,
+        "timedatectl show --property=NTP --property=NTPSynchronized 2>/dev/null || echo 'unavailable'",
+    );
+    let ntp_enabled = ntp_status.contains("NTP=yes");
+    let ntp_synced = ntp_status.contains("NTPSynchronized=yes");
+
+    let ntp_info = if ntp_status.contains("unavailable") {
+        "NTP status: unable to determine (timedatectl not available)".to_string()
+    } else {
+        format!(
+            "NTP enabled: {}, NTP synchronized: {}",
+            if ntp_enabled { "yes" } else { "no" },
+            if ntp_synced { "yes" } else { "no" },
+        )
+    };
+
+    // Flag NTP not enabled/synced even without significant drift
+    if !ntp_status.contains("unavailable") && (!ntp_enabled || !ntp_synced) && drift_secs < 30 {
+        let mut desc = format!(
+            "Clock drift is minimal ({}s) but NTP is not properly configured. {}",
+            drift_secs, ntp_info
+        );
+        if !ntp_enabled {
+            desc.push_str("\n\nWithout NTP, the clock will gradually drift, causing TLS and log correlation issues.");
+        }
+        findings.push(
+            Finding::new(
+                "remote-ntp-not-configured",
+                "NTP not enabled or not synchronized".to_string(),
+                desc,
+                protectinator_core::Severity::Low,
+                FindingSource::Hardening {
+                    check_id: "remote-clock-drift".to_string(),
+                    category: "availability".to_string(),
+                },
+            )
+            .with_remediation("Enable NTP: timedatectl set-ntp true — or install chrony: apt install chrony"),
+        );
+    }
+
+    if drift_secs >= 300 {
+        findings.push(
+            Finding::new(
+                "remote-clock-drift-critical",
+                format!("Clock drift: {}s — critical desynchronization", drift_secs),
+                format!(
+                    "Remote host clock differs from local system by {} seconds ({} minutes). \
+                     This will cause TLS certificate validation failures, Kerberos authentication \
+                     breakage, cron jobs firing at wrong times, and unreliable log correlation.\n\n{}",
+                    drift_secs,
+                    drift_secs / 60,
+                    ntp_info
+                ),
+                protectinator_core::Severity::Critical,
+                FindingSource::Hardening {
+                    check_id: "remote-clock-drift".to_string(),
+                    category: "availability".to_string(),
+                },
+            )
+            .with_resource(format!("drift: {}s, remote epoch: {}, local epoch: {}", drift_secs, remote_epoch, local_epoch))
+            .with_remediation("Enable NTP: timedatectl set-ntp true — or install chrony: apt install chrony"),
+        );
+    } else if drift_secs >= 30 {
+        findings.push(
+            Finding::new(
+                "remote-clock-drift-warning",
+                format!("Clock drift: {}s — may cause issues", drift_secs),
+                format!(
+                    "Remote host clock differs from local system by {} seconds. \
+                     This can cause TLS certificate validation issues, log timestamp confusion, \
+                     and inconsistent scheduled task execution.\n\n{}",
+                    drift_secs,
+                    ntp_info
+                ),
+                protectinator_core::Severity::Medium,
+                FindingSource::Hardening {
+                    check_id: "remote-clock-drift".to_string(),
+                    category: "availability".to_string(),
+                },
+            )
+            .with_resource(format!("drift: {}s", drift_secs))
+            .with_remediation("Enable NTP: timedatectl set-ntp true — or install chrony: apt install chrony"),
+        );
     }
 
     findings

@@ -171,8 +171,11 @@ impl IotScanner {
 
     /// Run the scan and return results
     pub fn scan(&self) -> IotScanResults {
-        let fs = ContainerFs::new(&self.root_path);
+        self.scan_with_fs(&ContainerFs::new(&self.root_path))
+    }
 
+    /// Run the scan against a given filesystem
+    fn scan_with_fs(&self, fs: &ContainerFs) -> IotScanResults {
         info!(
             "Scanning IoT device '{}' (mode: {}, root: {})",
             self.name,
@@ -181,7 +184,7 @@ impl IotScanner {
         );
 
         // Detect device type
-        let device_type = platform::detect_device(&fs);
+        let device_type = platform::detect_device(fs);
         info!("Detected device type: {}", device_type);
 
         // Detect OS
@@ -190,7 +193,7 @@ impl IotScanner {
         let device = IotDevice {
             name: self.name.clone(),
             device_type,
-            scan_mode: self.scan_mode,
+            scan_mode: self.scan_mode.clone(),
             root_path: self.root_path.clone(),
             os_info,
         };
@@ -204,7 +207,7 @@ impl IotScanner {
             total_checks += container_checks.len();
             for check in &container_checks {
                 debug!("Running container check: {} ({})", check.name(), check.id());
-                let findings = check.run(&fs);
+                let findings = check.run(fs);
                 debug!("  {} findings", findings.len());
                 all_findings.extend(findings);
             }
@@ -213,18 +216,19 @@ impl IotScanner {
         // Run IoT-specific checks
         let iot_checks = self.build_iot_checks();
         total_checks += iot_checks.len();
-        let is_local = self.scan_mode == IotScanMode::Local;
+        // SSH mode has live access (we gathered /proc/net/* data)
+        let has_live_access = self.scan_mode.has_live_access();
 
         for check in &iot_checks {
-            if check.requires_local() && !is_local {
+            if check.requires_local() && !has_live_access {
                 debug!(
-                    "Skipping check {} (requires local mode)",
+                    "Skipping check {} (requires live access)",
                     check.name()
                 );
                 continue;
             }
             debug!("Running IoT check: {} ({})", check.name(), check.id());
-            let findings = check.run(&fs);
+            let findings = check.run(fs);
             debug!("  {} findings", findings.len());
             all_findings.extend(findings);
         }
@@ -246,7 +250,7 @@ impl IotScanner {
             .collect();
 
         // Build scan results
-        let arch = platform::detect_architecture(&fs);
+        let arch = platform::detect_architecture(fs);
         let system_info = SystemInfo {
             os_name: device
                 .os_info
@@ -282,6 +286,29 @@ impl IotScanner {
             device,
             scan_results: results,
         }
+    }
+
+    /// Run an SSH-based scan: gather data from remote host, then run checks locally
+    #[cfg(feature = "ssh")]
+    pub fn scan_ssh(
+        &self,
+        host: &protectinator_remote::RemoteHost,
+    ) -> Result<IotScanResults, String> {
+        use crate::ssh_gather;
+
+        info!("Starting SSH-based IoT scan of {}", host.display_name());
+
+        // Test connectivity
+        protectinator_remote::ssh::test_connection(host)?;
+
+        // Gather data into temp directory
+        let tmp = tempfile::TempDir::new()
+            .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+        ssh_gather::gather_iot_data(host, tmp.path())?;
+
+        // Run checks against gathered filesystem
+        let fs = ContainerFs::new(tmp.path());
+        Ok(self.scan_with_fs(&fs))
     }
 
     fn build_container_checks(&self) -> Vec<Box<dyn ContainerCheck>> {

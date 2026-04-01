@@ -35,6 +35,22 @@ pub struct IotScanArgs {
     #[arg(long)]
     root: Option<PathBuf>,
 
+    /// Scan via SSH (e.g. pi@raspberrypi.local or just a hostname)
+    #[arg(long)]
+    ssh: Option<String>,
+
+    /// SSH user (used with --ssh, default: pi)
+    #[arg(long, default_value = "pi")]
+    ssh_user: String,
+
+    /// SSH port (used with --ssh, default: 22)
+    #[arg(long, default_value_t = 22)]
+    ssh_port: u16,
+
+    /// SSH private key path (used with --ssh)
+    #[arg(long)]
+    ssh_key: Option<PathBuf>,
+
     /// Minimum severity to report
     #[arg(long, value_enum, default_value_t = IotMinSeverity::Low)]
     min_severity: IotMinSeverity,
@@ -156,21 +172,38 @@ pub fn run(cmd: IotCommands, format: &str) -> anyhow::Result<()> {
 
 fn run_scan(args: IotScanArgs, format: &str) -> anyhow::Result<()> {
     let is_json = format == "json";
-    let root_path = args.root.clone().unwrap_or_else(|| PathBuf::from("/"));
-    let scan_mode = if args.root.is_some() {
-        IotScanMode::Mounted
+
+    // Determine scan mode
+    let (scan_mode, root_path) = if let Some(ref ssh_target) = args.ssh {
+        // Parse user@host or just host
+        let ssh_dest = if ssh_target.contains('@') {
+            ssh_target.clone()
+        } else {
+            format!("{}@{}", args.ssh_user, ssh_target)
+        };
+        let mode = IotScanMode::Ssh {
+            ssh_dest: ssh_dest.clone(),
+        };
+        (mode, PathBuf::from("/")) // root_path is placeholder for SSH mode
     } else {
-        IotScanMode::Local
+        let root = args.root.clone().unwrap_or_else(|| PathBuf::from("/"));
+        let mode = if args.root.is_some() {
+            IotScanMode::Mounted
+        } else {
+            IotScanMode::Local
+        };
+        (mode, root)
     };
 
-    if !root_path.exists() {
+    // Validate root path for non-SSH modes
+    if args.ssh.is_none() && !root_path.exists() {
         anyhow::bail!(
             "Root path '{}' does not exist. Provide a valid mount point with --root.",
             root_path.display()
         );
     }
 
-    let scanner = IotScanner::new(args.name.clone(), scan_mode, root_path.clone())
+    let scanner = IotScanner::new(args.name.clone(), scan_mode.clone(), root_path.clone())
         .iot_only(args.iot_only)
         .tier1_only(args.tier1_only)
         .skip_packages(args.skip_packages)
@@ -198,12 +231,51 @@ fn run_scan(args: IotScanArgs, format: &str) -> anyhow::Result<()> {
         println!("=================");
         println!("  Device: {}", args.name);
         println!("  Mode:   {}", scan_mode);
-        println!("  Root:   {}", root_path.display());
+        if args.ssh.is_some() {
+            println!("  Target: {}", args.ssh.as_ref().unwrap());
+        } else {
+            println!("  Root:   {}", root_path.display());
+        }
         println!();
     }
 
-    let scan_results = scanner.scan();
+    let device_name = args.name.clone();
+    let scan_results = if let Some(ref ssh_target) = args.ssh {
+        // Build RemoteHost from SSH args
+        let (user, hostname) = if ssh_target.contains('@') {
+            let parts: Vec<&str> = ssh_target.splitn(2, '@').collect();
+            (parts[0].to_string(), parts[1].to_string())
+        } else {
+            (args.ssh_user.clone(), ssh_target.clone())
+        };
+
+        let mut host = protectinator_remote::RemoteHost::new(hostname)
+            .with_user(user)
+            .with_port(args.ssh_port);
+        if let Some(ref key) = args.ssh_key {
+            host = host.with_key(key);
+        }
+
+        scanner.scan_ssh(&host).map_err(|e| anyhow::anyhow!(e))?
+    } else {
+        scanner.scan()
+    };
     let duration = start.elapsed();
+
+    // Store scan results in history database
+    let scan_key = format!("iot:{}", device_name);
+    match protectinator_data::ScanStore::open(
+        &protectinator_data::default_data_dir()
+            .unwrap_or_default()
+            .join("scan_history.db"),
+    ) {
+        Ok(db) => {
+            if let Err(e) = db.store_scan(&scan_key, &scan_results.scan_results.findings, 0) {
+                eprintln!("Warning: failed to save scan history: {}", e);
+            }
+        }
+        Err(e) => eprintln!("Warning: failed to open scan history: {}", e),
+    }
 
     let min_severity: Severity = args.min_severity.into();
     let filtered_findings: Vec<_> = scan_results

@@ -254,6 +254,22 @@ pub fn run(args: ScanArgs, format: &str) -> anyhow::Result<()> {
     let results = builder.run()?;
     let duration = start.elapsed();
 
+    // Store scan results in history database
+    let hostname = results.system_info.hostname.clone();
+    let scan_key = format!("local:{}", hostname);
+    match protectinator_data::ScanStore::open(
+        &protectinator_data::default_data_dir()
+            .unwrap_or_default()
+            .join("scan_history.db"),
+    ) {
+        Ok(db) => {
+            if let Err(e) = db.store_scan(&scan_key, &results.findings, 0) {
+                eprintln!("Warning: failed to save scan history: {}", e);
+            }
+        }
+        Err(e) => eprintln!("Warning: failed to open scan history: {}", e),
+    }
+
     // Filter findings by minimum severity
     let min_severity: Severity = args.min_severity.into();
     let filtered_count = results.findings.iter().filter(|f| f.severity >= min_severity).count();

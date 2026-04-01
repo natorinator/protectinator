@@ -174,6 +174,21 @@ fn run_scan(args: RemoteScanArgs, format: &str) -> anyhow::Result<()> {
 
     let duration = start.elapsed();
 
+    // Store scan results in history database
+    let scan_key = format!("remote:{}", results.host.display_name());
+    match protectinator_data::ScanStore::open(
+        &protectinator_data::default_data_dir()
+            .unwrap_or_default()
+            .join("scan_history.db"),
+    ) {
+        Ok(db) => {
+            if let Err(e) = db.store_scan(&scan_key, &results.scan_results.findings, 0) {
+                eprintln!("Warning: failed to save scan history: {}", e);
+            }
+        }
+        Err(e) => eprintln!("Warning: failed to open scan history: {}", e),
+    }
+
     let filtered: Vec<_> = results
         .scan_results
         .findings

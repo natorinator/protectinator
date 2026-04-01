@@ -247,6 +247,12 @@ enum Commands {
     #[command(subcommand)]
     Remote(commands::remote::RemoteCommands),
 
+    /// Generate a PDF report from a stored scan
+    ///
+    /// Create a PDF report from scan results stored in the history database.
+    /// Use 'protectinator report --scan-id N' to specify which scan.
+    Report(commands::report::ReportArgs),
+
     /// Show system information
     ///
     /// Display information about the current system
@@ -302,6 +308,7 @@ fn main() -> anyhow::Result<()> {
         Commands::SupplyChain(cmd) => commands::supply_chain::run(cmd, format_str),
         #[cfg(feature = "remote")]
         Commands::Remote(cmd) => commands::remote::run(cmd, format_str),
+        Commands::Report(args) => commands::report::run(args),
         Commands::Info => commands::info::run(),
     };
 

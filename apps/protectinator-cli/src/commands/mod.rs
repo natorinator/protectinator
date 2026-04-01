@@ -28,3 +28,4 @@ pub mod verify;
 pub mod yara;
 #[cfg(feature = "remote")]
 pub mod remote;
+pub mod report;

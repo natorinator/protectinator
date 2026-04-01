@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protectinator Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+    <div x-data="app()" x-init="init()">
+        <!-- Nav -->
+        <nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-6">
+            <h1 class="text-lg font-bold text-emerald-400 cursor-pointer" @click="navigate('dashboard')">
+                Protectinator
+            </h1>
+            <button class="nav-btn" :class="{ 'active': view === 'dashboard' }" @click="navigate('dashboard')">Dashboard</button>
+            <button class="nav-btn" :class="{ 'active': view === 'scans' }" @click="navigate('scans')">Scans</button>
+            <button class="nav-btn" :class="{ 'active': view === 'advisories' }" @click="navigate('advisories')">Advisories</button>
+            <button class="nav-btn" :class="{ 'active': view === 'sboms' }" @click="navigate('sboms')">SBOMs</button>
+            <div class="ml-auto text-sm text-gray-500" x-text="statusText"></div>
+        </nav>
+
+        <!-- Dashboard View -->
+        <div x-show="view === 'dashboard'" class="p-6">
+            <h2 class="text-xl font-semibold mb-4">Fleet Overview</h2>
+
+            <!-- Status Cards -->
+            <div class="grid grid-cols-4 gap-4 mb-6">
+                <div class="stat-card">
+                    <div class="text-3xl font-bold" x-text="status.scan_count || 0"></div>
+                    <div class="text-gray-400 text-sm">Total Scans</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold" x-text="status.finding_count || 0"></div>
+                    <div class="text-gray-400 text-sm">Total Findings</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold" x-text="status.sbom_count || 0"></div>
+                    <div class="text-gray-400 text-sm">SBOMs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold" x-text="status.vuln_cache_count || 0"></div>
+                    <div class="text-gray-400 text-sm">Cached Advisories</div>
+                </div>
+            </div>
+
+            <!-- Host Cards -->
+            <h3 class="text-lg font-semibold mb-3">Hosts</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <template x-for="host in hosts" :key="host.name">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 cursor-pointer hover:border-gray-600 transition"
+                         @click="viewHost(host.name)">
+                        <div class="flex justify-between items-start mb-2">
+                            <h4 class="font-semibold text-white" x-text="host.name"></h4>
+                            <span class="text-xs text-gray-500" x-text="formatDate(host.last_scanned)"></span>
+                        </div>
+                        <div class="flex gap-2 text-xs">
+                            <span class="severity-badge critical" x-show="host.latest_critical > 0" x-text="'C:' + host.latest_critical"></span>
+                            <span class="severity-badge high" x-show="host.latest_high > 0" x-text="'H:' + host.latest_high"></span>
+                            <span class="severity-badge medium" x-show="host.latest_medium > 0" x-text="'M:' + host.latest_medium"></span>
+                            <span class="severity-badge low" x-show="host.latest_low > 0" x-text="'L:' + host.latest_low"></span>
+                            <span class="severity-badge info" x-show="host.latest_info > 0" x-text="'I:' + host.latest_info"></span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-2" x-text="host.scan_count + ' scans'"></div>
+                    </div>
+                </template>
+            </div>
+
+            <div x-show="hosts.length === 0" class="text-gray-500 text-center py-12">
+                No scan data found. Run <code class="bg-gray-800 px-2 py-1 rounded">protectinator scan</code> to get started.
+            </div>
+        </div>
+
+        <!-- Host Detail View -->
+        <div x-show="view === 'host'" class="p-6">
+            <button class="text-sm text-gray-400 hover:text-white mb-4" @click="navigate('dashboard')">&larr; Back</button>
+            <h2 class="text-xl font-semibold mb-4" x-text="'Host: ' + selectedHost"></h2>
+
+            <!-- Trend Chart -->
+            <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6">
+                <h3 class="font-semibold mb-3">Severity Trend</h3>
+                <div style="height: 250px;">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Timeline -->
+            <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6">
+                <h3 class="font-semibold mb-3">Scan History</h3>
+                <div class="space-y-2">
+                    <template x-for="scan in hostScans" :key="scan.id">
+                        <div class="flex items-center gap-4 py-2 px-3 rounded hover:bg-gray-800 cursor-pointer"
+                             @click="viewScan(scan.id)">
+                            <span class="text-xs text-gray-500 w-40" x-text="formatDate(scan.scanned_at)"></span>
+                            <div class="flex gap-1">
+                                <span class="severity-badge critical" x-show="scan.critical > 0" x-text="scan.critical"></span>
+                                <span class="severity-badge high" x-show="scan.high > 0" x-text="scan.high"></span>
+                                <span class="severity-badge medium" x-show="scan.medium > 0" x-text="scan.medium"></span>
+                                <span class="severity-badge low" x-show="scan.low > 0" x-text="scan.low"></span>
+                                <span class="severity-badge info" x-show="scan.info > 0" x-text="scan.info"></span>
+                            </div>
+                            <span class="text-xs text-gray-500" x-text="scan.total_findings + ' findings'"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scan Detail View -->
+        <div x-show="view === 'scan'" class="p-6">
+            <button class="text-sm text-gray-400 hover:text-white mb-4" @click="goBack()">&larr; Back</button>
+            <div x-show="currentScan">
+                <h2 class="text-xl font-semibold mb-1">Scan #<span x-text="currentScan?.id"></span></h2>
+                <div class="text-sm text-gray-400 mb-4">
+                    <span x-text="currentScan?.repo_path"></span> &mdash;
+                    <span x-text="formatDate(currentScan?.scanned_at)"></span>
+                </div>
+
+                <!-- Severity Summary + PDF Download -->
+                <div class="flex gap-3 mb-6 items-center">
+                    <span class="severity-badge critical text-sm" x-text="'Critical: ' + (currentScan?.critical || 0)"></span>
+                    <span class="severity-badge high text-sm" x-text="'High: ' + (currentScan?.high || 0)"></span>
+                    <span class="severity-badge medium text-sm" x-text="'Medium: ' + (currentScan?.medium || 0)"></span>
+                    <span class="severity-badge low text-sm" x-text="'Low: ' + (currentScan?.low || 0)"></span>
+                    <span class="severity-badge info text-sm" x-text="'Info: ' + (currentScan?.info || 0)"></span>
+                    <a :href="'/api/reports/' + currentScan?.id + '/pdf'"
+                       class="ml-auto bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded text-sm font-medium transition"
+                       download>
+                        Download PDF
+                    </a>
+                </div>
+
+                <!-- Findings Table -->
+                <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-800 text-gray-400">
+                            <tr>
+                                <th class="text-left px-4 py-2 w-24">Severity</th>
+                                <th class="text-left px-4 py-2">Title</th>
+                                <th class="text-left px-4 py-2 w-40">Category</th>
+                                <th class="text-left px-4 py-2 w-48">Resource</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="f in scanFindings" :key="f.id">
+                                <tr class="border-t border-gray-800 hover:bg-gray-800/50 cursor-pointer"
+                                    @click="f._expanded = !f._expanded">
+                                    <td class="px-4 py-2">
+                                        <span class="severity-badge" :class="f.severity.toLowerCase()" x-text="f.severity"></span>
+                                    </td>
+                                    <td class="px-4 py-2 text-white" x-text="f.title"></td>
+                                    <td class="px-4 py-2 text-gray-400" x-text="f.check_category || '-'"></td>
+                                    <td class="px-4 py-2 text-gray-400 truncate max-w-[12rem]" x-text="f.resource || '-'" :title="f.resource"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div x-show="scanFindings.length === 0" class="text-gray-500 text-center py-8">
+                    No findings for this scan.
+                </div>
+            </div>
+        </div>
+
+        <!-- Scans List View -->
+        <div x-show="view === 'scans'" class="p-6">
+            <h2 class="text-xl font-semibold mb-4">All Scans</h2>
+            <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-800 text-gray-400">
+                        <tr>
+                            <th class="text-left px-4 py-2 w-16">#</th>
+                            <th class="text-left px-4 py-2">Host</th>
+                            <th class="text-left px-4 py-2 w-40">Date</th>
+                            <th class="text-left px-4 py-2 w-20">Findings</th>
+                            <th class="text-left px-4 py-2 w-48">Severities</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="scan in allScans" :key="scan.id">
+                            <tr class="border-t border-gray-800 hover:bg-gray-800/50 cursor-pointer"
+                                @click="viewScan(scan.id)">
+                                <td class="px-4 py-2 text-gray-500" x-text="scan.id"></td>
+                                <td class="px-4 py-2 text-white" x-text="scan.repo_path"></td>
+                                <td class="px-4 py-2 text-gray-400" x-text="formatDate(scan.scanned_at)"></td>
+                                <td class="px-4 py-2" x-text="scan.total_findings"></td>
+                                <td class="px-4 py-2">
+                                    <div class="flex gap-1">
+                                        <span class="severity-badge critical" x-show="scan.critical > 0" x-text="scan.critical"></span>
+                                        <span class="severity-badge high" x-show="scan.high > 0" x-text="scan.high"></span>
+                                        <span class="severity-badge medium" x-show="scan.medium > 0" x-text="scan.medium"></span>
+                                        <span class="severity-badge low" x-show="scan.low > 0" x-text="scan.low"></span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Advisories View -->
+        <div x-show="view === 'advisories'" class="p-6">
+            <h2 class="text-xl font-semibold mb-4">Cached Advisories</h2>
+            <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-800 text-gray-400">
+                        <tr>
+                            <th class="text-left px-4 py-2">Advisory ID</th>
+                            <th class="text-left px-4 py-2 w-24">Type</th>
+                            <th class="text-left px-4 py-2 w-24">Score</th>
+                            <th class="text-left px-4 py-2">CWE IDs</th>
+                            <th class="text-left px-4 py-2 w-40">Cached</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="adv in advisories" :key="adv.advisory_id">
+                            <tr class="border-t border-gray-800">
+                                <td class="px-4 py-2 text-white font-mono text-xs" x-text="adv.advisory_id"></td>
+                                <td class="px-4 py-2 text-gray-400" x-text="adv.severity_type || '-'"></td>
+                                <td class="px-4 py-2" x-text="adv.severity_score || '-'"></td>
+                                <td class="px-4 py-2 text-gray-400 text-xs" x-text="adv.cwe_ids || '-'"></td>
+                                <td class="px-4 py-2 text-gray-500 text-xs" x-text="formatDate(adv.cached_at)"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+            <div x-show="advisories.length === 0" class="text-gray-500 text-center py-8">
+                No cached advisories.
+            </div>
+        </div>
+
+        <!-- SBOMs View -->
+        <div x-show="view === 'sboms'" class="p-6">
+            <h2 class="text-xl font-semibold mb-4">SBOMs</h2>
+
+            <!-- Search -->
+            <div class="mb-4">
+                <input type="text" placeholder="Search packages..."
+                       class="bg-gray-800 border border-gray-700 rounded px-4 py-2 w-80 text-sm focus:outline-none focus:border-emerald-500"
+                       x-model="sbomSearch"
+                       @keyup.enter="searchSbomPackages()">
+                <button class="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded text-sm ml-2"
+                        @click="searchSbomPackages()">Search</button>
+            </div>
+
+            <!-- Search Results -->
+            <div x-show="sbomSearchResults.length > 0" class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden mb-6">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-800 text-gray-400">
+                        <tr>
+                            <th class="text-left px-4 py-2">Package</th>
+                            <th class="text-left px-4 py-2 w-32">Version</th>
+                            <th class="text-left px-4 py-2 w-40">SBOM</th>
+                            <th class="text-left px-4 py-2">PURL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="pkg in sbomSearchResults" :key="pkg.purl + pkg.sbom_name">
+                            <tr class="border-t border-gray-800">
+                                <td class="px-4 py-2 text-white" x-text="pkg.name"></td>
+                                <td class="px-4 py-2" x-text="pkg.version"></td>
+                                <td class="px-4 py-2 text-gray-400" x-text="pkg.sbom_name"></td>
+                                <td class="px-4 py-2 text-gray-500 text-xs font-mono" x-text="pkg.purl || '-'"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- SBOM List -->
+            <h3 class="font-semibold mb-2">Available SBOMs</h3>
+            <div class="flex flex-wrap gap-2">
+                <template x-for="name in sbomNames" :key="name">
+                    <span class="bg-gray-800 border border-gray-700 rounded px-3 py-1 text-sm" x-text="name"></span>
+                </template>
+            </div>
+            <div x-show="sbomNames.length === 0" class="text-gray-500 py-4">
+                No SBOMs found.
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

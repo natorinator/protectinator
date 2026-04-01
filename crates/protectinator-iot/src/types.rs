@@ -59,12 +59,24 @@ impl fmt::Display for IotDeviceType {
 }
 
 /// How the IoT device is being scanned
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IotScanMode {
     /// Running directly on the device
     Local,
     /// Scanning a mounted SD card or filesystem
     Mounted,
+    /// Scanning over SSH (gathers data remotely, analyzes locally)
+    Ssh {
+        /// SSH destination (user@host)
+        ssh_dest: String,
+    },
+}
+
+impl IotScanMode {
+    /// Whether this mode has access to live system state (/proc, etc.)
+    pub fn has_live_access(&self) -> bool {
+        matches!(self, IotScanMode::Local | IotScanMode::Ssh { .. })
+    }
 }
 
 impl fmt::Display for IotScanMode {
@@ -72,6 +84,7 @@ impl fmt::Display for IotScanMode {
         match self {
             IotScanMode::Local => write!(f, "local"),
             IotScanMode::Mounted => write!(f, "mounted"),
+            IotScanMode::Ssh { ssh_dest } => write!(f, "ssh ({})", ssh_dest),
         }
     }
 }

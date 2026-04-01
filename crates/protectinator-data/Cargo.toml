@@ -1,0 +1,16 @@
+[package]
+name = "protectinator-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only query layer for Protectinator scan data (history, advisories, SBOMs)"
+
+[dependencies]
+protectinator-core = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+walkdir = { workspace = true }
+glob = { workspace = true }

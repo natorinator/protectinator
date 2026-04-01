@@ -1,0 +1,27 @@
+[package]
+name = "protectinator-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Web dashboard and REST API for Protectinator scan results"
+
+[[bin]]
+name = "protectinator-web"
+path = "src/main.rs"
+
+[dependencies]
+protectinator-core = { workspace = true }
+protectinator-data = { workspace = true }
+protectinator-report = { workspace = true }
+
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+rust-embed = { workspace = true }
+
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

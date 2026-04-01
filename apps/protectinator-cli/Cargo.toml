@@ -47,6 +47,8 @@ protectinator-container = { workspace = true, optional = true }
 protectinator-iot = { workspace = true, optional = true }
 protectinator-supply-chain = { workspace = true, optional = true }
 protectinator-remote = { workspace = true, optional = true }
+protectinator-data = { workspace = true }
+protectinator-report = { workspace = true }
 
 clap = { workspace = true }
 serde = { workspace = true }

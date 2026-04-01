@@ -17,7 +17,10 @@ members = [
     "crates/protectinator-iot",
     "crates/protectinator-supply-chain",
     "crates/protectinator-remote",
+    "crates/protectinator-data",
+    "crates/protectinator-report",
     "apps/protectinator-cli",
+    "apps/protectinator-web",
 ]
 
 [workspace.package]
@@ -90,9 +93,19 @@ protectinator-container = { path = "crates/protectinator-container" }
 protectinator-iot = { path = "crates/protectinator-iot" }
 protectinator-supply-chain = { path = "crates/protectinator-supply-chain" }
 protectinator-remote = { path = "crates/protectinator-remote" }
+protectinator-data = { path = "crates/protectinator-data" }
+protectinator-report = { path = "crates/protectinator-report" }
 
 # TOML parsing
 toml = "0.8"
+
+# PDF generation
+genpdf = "0.2"
+
+# Async runtime & web server
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "fs"] }
 
 # Hashing (dpkg md5sums compatibility)
 md-5 = "0.10"

@@ -1,0 +1,12 @@
+[package]
+name = "protectinator-report"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PDF report generation for Protectinator scan results"
+
+[dependencies]
+protectinator-core = { workspace = true }
+protectinator-data = { workspace = true }
+genpdf = { workspace = true }
+chrono = { workspace = true }

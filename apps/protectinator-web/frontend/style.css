@@ -1,0 +1,49 @@
+.nav-btn {
+    font-size: 0.875rem;
+    color: #9ca3af;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    transition: color 0.15s;
+}
+.nav-btn:hover {
+    color: #e5e7eb;
+}
+.nav-btn.active {
+    color: #34d399;
+    font-weight: 600;
+}
+
+.stat-card {
+    background: #111827;
+    border: 1px solid #1f2937;
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+
+.severity-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.severity-badge.critical {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+.severity-badge.high {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+.severity-badge.medium {
+    background: rgba(234, 179, 8, 0.15);
+    color: #eab308;
+}
+.severity-badge.low {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+}
+.severity-badge.info {
+    background: rgba(156, 163, 175, 0.15);
+    color: #9ca3af;
+}

@@ -30,6 +30,8 @@
 pub mod checks;
 pub mod platform;
 pub mod scanner;
+#[cfg(feature = "ssh")]
+pub mod ssh_gather;
 pub mod types;
 
 pub use platform::detect_device;
