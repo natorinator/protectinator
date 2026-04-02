@@ -43,6 +43,44 @@
     background: rgba(56, 189, 248, 0.15);
     color: #38bdf8;
 }
+.filter-btn {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.25rem;
+    border: 1px solid #374151;
+    color: #9ca3af;
+    transition: all 0.15s;
+}
+.filter-btn:hover {
+    border-color: #6b7280;
+    color: #e5e7eb;
+}
+.filter-btn.active-critical {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #f87171;
+    color: #f87171;
+}
+.filter-btn.active-high {
+    background: rgba(251, 191, 36, 0.2);
+    border-color: #fbbf24;
+    color: #fbbf24;
+}
+.filter-btn.active-medium {
+    background: rgba(234, 179, 8, 0.15);
+    border-color: #eab308;
+    color: #eab308;
+}
+.filter-btn.active-low {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: #38bdf8;
+    color: #38bdf8;
+}
+.filter-btn.active-info {
+    background: rgba(156, 163, 175, 0.15);
+    border-color: #9ca3af;
+    color: #9ca3af;
+}
+
 .severity-badge.info {
     background: rgba(156, 163, 175, 0.15);
     color: #9ca3af;

@@ -19,6 +19,7 @@ members = [
     "crates/protectinator-remote",
     "crates/protectinator-data",
     "crates/protectinator-report",
+    "crates/protectinator-fleet",
     "apps/protectinator-cli",
     "apps/protectinator-web",
 ]
@@ -95,6 +96,10 @@ protectinator-supply-chain = { path = "crates/protectinator-supply-chain" }
 protectinator-remote = { path = "crates/protectinator-remote" }
 protectinator-data = { path = "crates/protectinator-data" }
 protectinator-report = { path = "crates/protectinator-report" }
+protectinator-fleet = { path = "crates/protectinator-fleet" }
+
+# Prometheus metrics
+prometheus-client = "0.22"
 
 # TOML parsing
 toml = "0.8"

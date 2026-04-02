@@ -1,6 +1,7 @@
 //! REST API routes
 
 mod findings;
+mod fleet;
 mod hosts;
 mod reports;
 mod scans;
@@ -33,8 +34,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/sboms", get(sboms::list_sboms))
         .route("/api/sboms/search", get(sboms::search_packages))
         .route("/api/sboms/{name}", get(sboms::get_sbom))
+        // Fleet
+        .route("/api/fleet/summary", get(fleet::fleet_summary))
         // Advisories
         .route("/api/advisories", get(status::list_advisories))
+        // Prometheus metrics
+        .route("/metrics", get(crate::metrics::get_metrics))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

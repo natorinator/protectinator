@@ -1,0 +1,396 @@
+//! Fleet scan orchestration
+
+use crate::config::FleetConfig;
+use crate::notify;
+use crate::types::*;
+use protectinator_container::discover::list_all_containers;
+use protectinator_container::types::{ContainerRuntime, ContainerState};
+use protectinator_container::ContainerScanner;
+use protectinator_core::suppress::Suppressions;
+use protectinator_data::ScanStore;
+use protectinator_remote::{RemoteScanner, ScanMode};
+use rayon::prelude::*;
+use std::sync::Mutex;
+use std::time::Instant;
+use tracing::{error, info, warn};
+
+/// Options for filtering what to scan
+#[derive(Debug, Clone, Default)]
+pub struct FleetScanOptions {
+    pub hosts_only: bool,
+    pub containers_only: bool,
+    pub repos_only: bool,
+    pub offline: bool,
+}
+
+/// Fleet scanner
+pub struct FleetRunner {
+    config: FleetConfig,
+}
+
+impl FleetRunner {
+    pub fn new(config: FleetConfig) -> Self {
+        Self { config }
+    }
+
+    /// Run a complete fleet scan
+    pub fn scan(&self, opts: &FleetScanOptions) -> FleetScanResults {
+        let start = Instant::now();
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let offline = opts.offline || self.config.settings.offline;
+
+        // Load suppressions
+        let suppressions = Suppressions::load_default();
+
+        // Open DB for storing results
+        let db = if self.config.settings.save_history {
+            protectinator_data::default_data_dir()
+                .ok()
+                .and_then(|dir| ScanStore::open(&dir.join("scan_history.db")).ok())
+        } else {
+            None
+        };
+        let db = Mutex::new(db);
+
+        // Scan hosts in parallel
+        let host_results = if !opts.containers_only && !opts.repos_only {
+            self.scan_hosts(&db, offline, &suppressions)
+        } else {
+            Vec::new()
+        };
+
+        // Scan containers (sequential — shared local filesystem)
+        let container_results = if !opts.hosts_only && !opts.repos_only {
+            self.scan_containers(&db, offline, &suppressions)
+        } else {
+            Vec::new()
+        };
+
+        // Scan repos (sequential)
+        let repo_results = if !opts.hosts_only && !opts.containers_only {
+            self.scan_repos(&db, offline, &suppressions)
+        } else {
+            Vec::new()
+        };
+
+        let duration_ms = start.elapsed().as_millis() as u64;
+        let summary = FleetSummary::from_results(
+            &host_results,
+            &container_results,
+            &repo_results,
+            duration_ms,
+        );
+
+        let results = FleetScanResults {
+            timestamp,
+            host_results,
+            container_results,
+            repo_results,
+            summary,
+        };
+
+        // Send webhook notifications if configured
+        if let Some(ref webhook) = self.config.notifications.webhook {
+            let notifiable = collect_notifiable(&results);
+            if !notifiable.new_critical.is_empty() || !notifiable.new_high.is_empty() {
+                if let Err(e) = notify::send_webhook(webhook, &results, &notifiable) {
+                    warn!("Failed to send webhook notification: {}", e);
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Scan remote hosts in parallel using rayon
+    fn scan_hosts(
+        &self,
+        db: &Mutex<Option<ScanStore>>,
+        offline: bool,
+        suppressions: &Suppressions,
+    ) -> Vec<FleetTargetResult> {
+        if self.config.hosts.is_empty() {
+            return Vec::new();
+        }
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(self.config.settings.parallel)
+            .build()
+            .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+
+        pool.install(|| {
+            self.config
+                .hosts
+                .par_iter()
+                .map(|entry| {
+                    let host = FleetConfig::host_to_remote(entry);
+                    info!("Scanning host: {}", entry.name);
+                    let start = Instant::now();
+
+                    let scanner = RemoteScanner::new(host, ScanMode::Agentless)
+                        .skip_vulnerability(offline);
+
+                    match scanner.scan() {
+                        Ok(mut results) => {
+                            let duration_ms = start.elapsed().as_millis() as u64;
+                            let scan_key = format!("remote:{}", entry.name);
+
+                            // Apply suppressions
+                            results.scan_results.findings = suppressions.filter(
+                                std::mem::take(&mut results.scan_results.findings),
+                                Some(&scan_key),
+                            );
+
+                            // Store results (after suppression)
+                            if let Ok(guard) = db.lock() {
+                                if let Some(ref store) = *guard {
+                                    if let Err(e) = store.store_scan(
+                                        &scan_key,
+                                        &results.scan_results.findings,
+                                        0,
+                                    ) {
+                                        warn!("Failed to store scan for {}: {}", entry.name, e);
+                                    }
+                                }
+                            }
+
+                            let result = FleetTargetResult::from_findings(
+                                entry.name.clone(),
+                                "remote",
+                                &results.scan_results.findings,
+                                duration_ms,
+                            );
+
+                            info!(
+                                "Host {} complete: {} findings in {}ms",
+                                entry.name, result.total_findings, duration_ms
+                            );
+
+                            result
+                        }
+                        Err(e) => {
+                            error!("Host {} failed: {}", entry.name, e);
+                            FleetTargetResult::error(
+                                entry.name.clone(),
+                                "remote",
+                                e.to_string(),
+                            )
+                        }
+                    }
+                })
+                .collect()
+        })
+    }
+
+    /// Scan containers sequentially
+    fn scan_containers(
+        &self,
+        db: &Mutex<Option<ScanStore>>,
+        offline: bool,
+        suppressions: &Suppressions,
+    ) -> Vec<FleetTargetResult> {
+        if !self.config.containers.scan_all && self.config.containers.names.is_empty() {
+            return Vec::new();
+        }
+
+        let containers = list_all_containers();
+        if containers.is_empty() {
+            return Vec::new();
+        }
+
+        let scanner = ContainerScanner::new().skip_vulnerability(offline);
+
+        let targets: Vec<_> = if self.config.containers.scan_all {
+            containers.iter().collect()
+        } else {
+            containers
+                .iter()
+                .filter(|c| self.config.containers.names.contains(&c.name))
+                .collect()
+        };
+
+        // Filter by runtime if specified
+        let targets: Vec<_> = if let Some(ref rt) = self.config.containers.runtime {
+            targets
+                .into_iter()
+                .filter(|c| {
+                    match rt.as_str() {
+                        "nspawn" => c.runtime == ContainerRuntime::Nspawn,
+                        "docker" => c.runtime == ContainerRuntime::Docker,
+                        _ => true,
+                    }
+                })
+                .collect()
+        } else {
+            targets
+        };
+
+        targets
+            .iter()
+            .filter_map(|target| {
+                // Skip inaccessible containers
+                if target.runtime == ContainerRuntime::Docker
+                    && target.state != ContainerState::Running
+                {
+                    return None;
+                }
+                if !target.root_path.is_dir() {
+                    return None;
+                }
+
+                info!("Scanning container: {}", target.name);
+                let start = Instant::now();
+                let mut scan_results = scanner.scan(target);
+                let duration_ms = start.elapsed().as_millis() as u64;
+
+                let scan_key = format!("container:{}", target.name);
+
+                // Apply suppressions
+                scan_results.scan_results.findings = suppressions.filter(
+                    std::mem::take(&mut scan_results.scan_results.findings),
+                    Some(&scan_key),
+                );
+
+                // Store results
+                if let Ok(guard) = db.lock() {
+                    if let Some(ref store) = *guard {
+                        if let Err(e) =
+                            store.store_scan(&scan_key, &scan_results.scan_results.findings, 0)
+                        {
+                            warn!("Failed to store scan for {}: {}", target.name, e);
+                        }
+                    }
+                }
+
+                let result = FleetTargetResult::from_findings(
+                    target.name.clone(),
+                    "container",
+                    &scan_results.scan_results.findings,
+                    duration_ms,
+                );
+
+                info!(
+                    "Container {} complete: {} findings in {}ms",
+                    target.name, result.total_findings, duration_ms
+                );
+
+                Some(result)
+            })
+            .collect()
+    }
+
+    /// Scan supply-chain repos sequentially
+    fn scan_repos(
+        &self,
+        db: &Mutex<Option<ScanStore>>,
+        offline: bool,
+        suppressions: &Suppressions,
+    ) -> Vec<FleetTargetResult> {
+        if self.config.repos.is_empty() {
+            return Vec::new();
+        }
+
+        self.config
+            .repos
+            .iter()
+            .map(|entry| {
+                let path = FleetConfig::expand_path(&entry.path);
+                let name = path.display().to_string();
+
+                if !path.exists() {
+                    return FleetTargetResult::error(
+                        name,
+                        "repo",
+                        format!("Path does not exist: {}", path.display()),
+                    );
+                }
+
+                info!("Scanning repo: {}", path.display());
+                let start = Instant::now();
+
+                let mut scanner = protectinator_supply_chain::SupplyChainScanner::new(path.clone());
+                if offline {
+                    scanner = scanner.offline(true);
+                }
+                if let Some(ref eco) = entry.ecosystem {
+                    scanner = scanner.ecosystem(Some(eco.clone()));
+                }
+
+                let mut results = scanner.scan();
+                let duration_ms = start.elapsed().as_millis() as u64;
+                let scan_key = path
+                    .canonicalize()
+                    .unwrap_or(path.clone())
+                    .display()
+                    .to_string();
+
+                // Apply suppressions
+                results.scan_results.findings = suppressions.filter(
+                    std::mem::take(&mut results.scan_results.findings),
+                    Some(&scan_key),
+                );
+
+                // Store results
+                if let Ok(guard) = db.lock() {
+                    if let Some(ref store) = *guard {
+                        if let Err(e) = store.store_scan(
+                            &scan_key,
+                            &results.scan_results.findings,
+                            results.packages_scanned,
+                        ) {
+                            warn!("Failed to store scan for {}: {}", name, e);
+                        }
+                    }
+                }
+
+                let result = FleetTargetResult::from_findings(
+                    name.clone(),
+                    "repo",
+                    &results.scan_results.findings,
+                    duration_ms,
+                );
+
+                info!(
+                    "Repo {} complete: {} findings in {}ms",
+                    name, result.total_findings, duration_ms
+                );
+
+                result
+            })
+            .collect()
+    }
+}
+
+/// Collect findings that should trigger notifications
+fn collect_notifiable(results: &FleetScanResults) -> NotifiableFindings {
+    let mut notifiable = NotifiableFindings {
+        new_critical: Vec::new(),
+        new_high: Vec::new(),
+    };
+
+    for result in results
+        .host_results
+        .iter()
+        .chain(results.container_results.iter())
+        .chain(results.repo_results.iter())
+    {
+        if result.critical > 0 {
+            notifiable.new_critical.push(NotifiableFinding {
+                host: result.name.clone(),
+                title: format!("{} critical findings", result.critical),
+                severity: "critical".to_string(),
+                resource: None,
+            });
+        }
+        if result.high > 0 {
+            notifiable.new_high.push(NotifiableFinding {
+                host: result.name.clone(),
+                title: format!("{} high findings", result.high),
+                severity: "high".to_string(),
+                resource: None,
+            });
+        }
+    }
+
+    notifiable
+}

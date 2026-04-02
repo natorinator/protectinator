@@ -5,6 +5,7 @@
 pub mod config;
 pub mod error;
 pub mod report;
+pub mod suppress;
 pub mod traits;
 
 pub use config::*;

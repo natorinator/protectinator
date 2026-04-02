@@ -482,6 +482,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56899898ce76aaf4a0f24d914c97ea6ed976d42fec6ad33fcbb0a1103e07b2b0"
 
 [[package]]
+name = "dtoa"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1190,7 +1196,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b49a0272112719d0037ab63d4bb67f73ba659e1e90bc38f235f163a457ac16f3"
 dependencies = [
  "chrono",
- "dtoa",
+ "dtoa 0.4.8",
  "encoding",
  "flate2",
  "itoa 0.4.8",
@@ -1473,6 +1479,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus-client"
+version = "0.22.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "504ee9ff529add891127c4827eb481bd69dc0ebc72e9a682e187db4caa60c3ca"
+dependencies = [
+ "dtoa 1.0.11",
+ "itoa 1.0.15",
+ "parking_lot",
+ "prometheus-client-derive-encode",
+]
+
+[[package]]
+name = "prometheus-client-derive-encode"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "440f724eba9f6996b75d63681b0a92b06947f1457076d503a4d2e2c8f56442b8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "protectinator"
 version = "2026.3.28"
 dependencies = [
@@ -1485,6 +1514,7 @@ dependencies = [
  "protectinator-data",
  "protectinator-engine",
  "protectinator-fim",
+ "protectinator-fleet",
  "protectinator-hardening",
  "protectinator-iot",
  "protectinator-osverify",
@@ -1542,6 +1572,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.17",
+ "toml",
 ]
 
 [[package]]
@@ -1585,6 +1616,24 @@ dependencies = [
  "tempfile",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "protectinator-fleet"
+version = "2026.3.28"
+dependencies = [
+ "chrono",
+ "protectinator-container",
+ "protectinator-core",
+ "protectinator-data",
+ "protectinator-remote",
+ "protectinator-supply-chain",
+ "rayon",
+ "serde",
+ "serde_json",
+ "toml",
+ "tracing",
+ "ureq",
 ]
 
 [[package]]
@@ -1757,6 +1806,7 @@ dependencies = [
  "axum",
  "chrono",
  "clap",
+ "prometheus-client",
  "protectinator-core",
  "protectinator-data",
  "protectinator-report",

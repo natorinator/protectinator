@@ -37,6 +37,8 @@ pub struct RemoteHost {
     pub key_path: Option<PathBuf>,
     /// Friendly name for display
     pub name: Option<String>,
+    /// Use sudo for privileged commands
+    pub use_sudo: bool,
 }
 
 impl RemoteHost {
@@ -47,6 +49,7 @@ impl RemoteHost {
             user: "root".to_string(),
             key_path: None,
             name: None,
+            use_sudo: false,
         }
     }
 
@@ -67,6 +70,11 @@ impl RemoteHost {
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    pub fn with_sudo(mut self, use_sudo: bool) -> Self {
+        self.use_sudo = use_sudo;
         self
     }
 

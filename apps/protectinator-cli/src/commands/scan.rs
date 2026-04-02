@@ -251,12 +251,19 @@ pub fn run(args: ScanArgs, format: &str) -> anyhow::Result<()> {
         println!("\nScanning...\n");
     }
 
-    let results = builder.run()?;
+    let mut results = builder.run()?;
     let duration = start.elapsed();
 
-    // Store scan results in history database
+    // Apply suppressions
     let hostname = results.system_info.hostname.clone();
     let scan_key = format!("local:{}", hostname);
+    let suppressions = protectinator_core::suppress::Suppressions::load_default();
+    results.findings = suppressions.filter(
+        std::mem::take(&mut results.findings),
+        Some(&scan_key),
+    );
+
+    // Store scan results in history database
     match protectinator_data::ScanStore::open(
         &protectinator_data::default_data_dir()
             .unwrap_or_default()

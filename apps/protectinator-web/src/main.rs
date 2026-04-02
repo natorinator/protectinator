@@ -5,6 +5,7 @@
 
 mod api;
 mod frontend;
+mod metrics;
 
 use clap::Parser;
 use protectinator_data::DataStore;

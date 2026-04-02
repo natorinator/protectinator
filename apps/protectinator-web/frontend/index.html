@@ -27,30 +27,89 @@
         <div x-show="view === 'dashboard'" class="p-6">
             <h2 class="text-xl font-semibold mb-4">Fleet Overview</h2>
 
-            <!-- Status Cards -->
-            <div class="grid grid-cols-4 gap-4 mb-6">
+            <!-- Fleet Summary -->
+            <div class="grid grid-cols-6 gap-4 mb-6">
+                <div class="stat-card">
+                    <div class="text-3xl font-bold" x-text="fleet.total_hosts || 0"></div>
+                    <div class="text-gray-400 text-sm">Hosts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold text-red-400" x-text="fleet.total_critical || 0"></div>
+                    <div class="text-gray-400 text-sm">Critical</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold text-yellow-400" x-text="fleet.total_high || 0"></div>
+                    <div class="text-gray-400 text-sm">High</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold text-yellow-500" x-text="fleet.total_medium || 0"></div>
+                    <div class="text-gray-400 text-sm">Medium</div>
+                </div>
                 <div class="stat-card">
                     <div class="text-3xl font-bold" x-text="status.scan_count || 0"></div>
                     <div class="text-gray-400 text-sm">Total Scans</div>
                 </div>
                 <div class="stat-card">
-                    <div class="text-3xl font-bold" x-text="status.finding_count || 0"></div>
-                    <div class="text-gray-400 text-sm">Total Findings</div>
-                </div>
-                <div class="stat-card">
                     <div class="text-3xl font-bold" x-text="status.sbom_count || 0"></div>
                     <div class="text-gray-400 text-sm">SBOMs</div>
                 </div>
-                <div class="stat-card">
-                    <div class="text-3xl font-bold" x-text="status.vuln_cache_count || 0"></div>
-                    <div class="text-gray-400 text-sm">Cached Advisories</div>
+            </div>
+
+            <!-- Scan Freshness -->
+            <div x-show="fleet.freshness" class="flex gap-4 mb-6 text-sm">
+                <span class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-green-500 inline-block"></span>
+                    <span x-text="(fleet.freshness?.fresh || 0) + ' fresh (<24h)'"></span>
+                </span>
+                <span class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-yellow-500 inline-block"></span>
+                    <span x-text="(fleet.freshness?.recent || 0) + ' recent (<7d)'"></span>
+                </span>
+                <span class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+                    <span x-text="(fleet.freshness?.stale || 0) + ' stale (>7d)'"></span>
+                </span>
+            </div>
+
+            <!-- Hosts Needing Attention -->
+            <div x-show="fleet.needs_attention && fleet.needs_attention.length > 0" class="bg-red-950 border border-red-800 rounded-lg p-4 mb-6">
+                <h3 class="font-semibold text-red-400 mb-2">Needs Attention</h3>
+                <div class="space-y-1">
+                    <template x-for="host in (fleet.needs_attention || [])" :key="host.name">
+                        <div class="flex items-center gap-3 text-sm cursor-pointer hover:text-white" @click="viewHost(host.name)">
+                            <span class="text-white" x-text="host.name"></span>
+                            <span class="severity-badge critical" x-show="host.latest_critical > 0" x-text="'C:' + host.latest_critical"></span>
+                            <span class="severity-badge high" x-show="host.latest_high > 0" x-text="'H:' + host.latest_high"></span>
+                        </div>
+                    </template>
                 </div>
             </div>
 
-            <!-- Host Cards -->
-            <h3 class="text-lg font-semibold mb-3">Hosts</h3>
+            <!-- Host Filters -->
+            <div class="flex gap-3 mb-4 items-center flex-wrap">
+                <h3 class="text-lg font-semibold">Hosts</h3>
+                <input type="text" placeholder="Filter hosts..."
+                       class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-52 focus:outline-none focus:border-emerald-500"
+                       x-model="hostSearch">
+                <div class="flex gap-1">
+                    <button class="filter-btn" :class="{ 'active-critical': hostFilter === 'critical' }"
+                            @click="hostFilter = hostFilter === 'critical' ? '' : 'critical'">Has Critical</button>
+                    <button class="filter-btn" :class="{ 'active-high': hostFilter === 'high' }"
+                            @click="hostFilter = hostFilter === 'high' ? '' : 'high'">Has High</button>
+                    <button class="filter-btn" :class="{ 'active-info': hostFilter === 'clean' }"
+                            @click="hostFilter = hostFilter === 'clean' ? '' : 'clean'">Clean</button>
+                </div>
+                <select class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                        x-model="hostTypeFilter">
+                    <option value="">All types</option>
+                    <template x-for="t in hostTypes" :key="t">
+                        <option :value="t" x-text="t"></option>
+                    </template>
+                </select>
+                <span class="text-xs text-gray-500 ml-auto" x-text="filteredHosts.length + ' of ' + hosts.length + ' hosts'"></span>
+            </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <template x-for="host in hosts" :key="host.name">
+                <template x-for="host in filteredHosts" :key="host.name">
                     <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 cursor-pointer hover:border-gray-600 transition"
                          @click="viewHost(host.name)">
                         <div class="flex justify-between items-start mb-2">
@@ -133,19 +192,52 @@
                     </a>
                 </div>
 
+                <!-- Filters -->
+                <div class="flex gap-3 mb-4 items-center flex-wrap">
+                    <input type="text" placeholder="Search titles, resources..."
+                           class="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm w-64 focus:outline-none focus:border-emerald-500"
+                           x-model="findingSearch">
+                    <div class="flex gap-1">
+                        <button class="filter-btn" :class="{ 'active-critical': filterSeverity === 'Critical' }"
+                                @click="filterSeverity = filterSeverity === 'Critical' ? '' : 'Critical'">Critical</button>
+                        <button class="filter-btn" :class="{ 'active-high': filterSeverity === 'High' }"
+                                @click="filterSeverity = filterSeverity === 'High' ? '' : 'High'">High</button>
+                        <button class="filter-btn" :class="{ 'active-medium': filterSeverity === 'Medium' }"
+                                @click="filterSeverity = filterSeverity === 'Medium' ? '' : 'Medium'">Medium</button>
+                        <button class="filter-btn" :class="{ 'active-low': filterSeverity === 'Low' }"
+                                @click="filterSeverity = filterSeverity === 'Low' ? '' : 'Low'">Low</button>
+                        <button class="filter-btn" :class="{ 'active-info': filterSeverity === 'Info' }"
+                                @click="filterSeverity = filterSeverity === 'Info' ? '' : 'Info'">Info</button>
+                    </div>
+                    <select class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                            x-model="filterCategory">
+                        <option value="">All categories</option>
+                        <template x-for="cat in scanCategories" :key="cat">
+                            <option :value="cat" x-text="cat"></option>
+                        </template>
+                    </select>
+                    <span class="text-xs text-gray-500 ml-auto" x-text="filteredFindings.length + ' of ' + scanFindings.length + ' findings'"></span>
+                </div>
+
                 <!-- Findings Table -->
                 <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
                     <table class="w-full text-sm">
                         <thead class="bg-gray-800 text-gray-400">
                             <tr>
-                                <th class="text-left px-4 py-2 w-24">Severity</th>
-                                <th class="text-left px-4 py-2">Title</th>
-                                <th class="text-left px-4 py-2 w-40">Category</th>
+                                <th class="text-left px-4 py-2 w-24 cursor-pointer" @click="toggleSort('severity')">
+                                    Severity <span x-show="sortField === 'severity'" x-text="sortAsc ? '▲' : '▼'"></span>
+                                </th>
+                                <th class="text-left px-4 py-2 cursor-pointer" @click="toggleSort('title')">
+                                    Title <span x-show="sortField === 'title'" x-text="sortAsc ? '▲' : '▼'"></span>
+                                </th>
+                                <th class="text-left px-4 py-2 w-40 cursor-pointer" @click="toggleSort('check_category')">
+                                    Category <span x-show="sortField === 'check_category'" x-text="sortAsc ? '▲' : '▼'"></span>
+                                </th>
                                 <th class="text-left px-4 py-2 w-48">Resource</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <template x-for="f in scanFindings" :key="f.id">
+                            <template x-for="f in filteredFindings" :key="f.id">
                                 <tr class="border-t border-gray-800 hover:bg-gray-800/50 cursor-pointer"
                                     @click="f._expanded = !f._expanded">
                                     <td class="px-4 py-2">
@@ -155,11 +247,24 @@
                                     <td class="px-4 py-2 text-gray-400" x-text="f.check_category || '-'"></td>
                                     <td class="px-4 py-2 text-gray-400 truncate max-w-[12rem]" x-text="f.resource || '-'" :title="f.resource"></td>
                                 </tr>
+                                <tr x-show="f._expanded" class="border-t border-gray-800 bg-gray-800/30">
+                                    <td colspan="4" class="px-4 py-3 text-sm">
+                                        <div x-show="f.remediation" class="text-gray-300">
+                                            <span class="text-gray-500">Fix:</span> <span x-text="f.remediation"></span>
+                                        </div>
+                                        <div x-show="f.resource" class="text-gray-400 text-xs mt-1">
+                                            <span class="text-gray-500">Resource:</span> <span x-text="f.resource"></span>
+                                        </div>
+                                    </td>
+                                </tr>
                             </template>
                         </tbody>
                     </table>
                 </div>
 
+                <div x-show="filteredFindings.length === 0 && scanFindings.length > 0" class="text-gray-500 text-center py-8">
+                    No findings match the current filters.
+                </div>
                 <div x-show="scanFindings.length === 0" class="text-gray-500 text-center py-8">
                     No findings for this scan.
                 </div>

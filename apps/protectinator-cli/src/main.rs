@@ -247,6 +247,14 @@ enum Commands {
     #[command(subcommand)]
     Remote(commands::remote::RemoteCommands),
 
+    /// Fleet management — scan multiple hosts, containers, and repos
+    ///
+    /// Scan your entire fleet from a single TOML config file.
+    /// Supports parallel host scanning, webhook notifications,
+    /// and aggregated results.
+    #[command(subcommand)]
+    Fleet(commands::fleet::FleetCommands),
+
     /// Generate a PDF report from a stored scan
     ///
     /// Create a PDF report from scan results stored in the history database.
@@ -308,6 +316,7 @@ fn main() -> anyhow::Result<()> {
         Commands::SupplyChain(cmd) => commands::supply_chain::run(cmd, format_str),
         #[cfg(feature = "remote")]
         Commands::Remote(cmd) => commands::remote::run(cmd, format_str),
+        Commands::Fleet(cmd) => commands::fleet::run(cmd, format_str),
         Commands::Report(args) => commands::report::run(args),
         Commands::Info => commands::info::run(),
     };

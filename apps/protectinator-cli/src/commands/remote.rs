@@ -54,6 +54,10 @@ pub struct RemoteScanArgs {
     /// Offline mode (skip CVE scanning)
     #[arg(long)]
     offline: bool,
+
+    /// Use sudo for privileged commands (when SSH user has passwordless sudo)
+    #[arg(long)]
+    sudo: bool,
 }
 
 #[derive(Args)]
@@ -149,7 +153,8 @@ fn run_test(args: RemoteTestArgs) -> anyhow::Result<()> {
 
 fn run_scan(args: RemoteScanArgs, format: &str) -> anyhow::Result<()> {
     let is_json = format == "json";
-    let host = build_host(&args.host, &args.user, args.port, args.key, args.name);
+    let host = build_host(&args.host, &args.user, args.port, args.key, args.name)
+        .with_sudo(args.sudo);
 
     let mode = match args.mode {
         RemoteScanModeArg::Agent => ScanMode::Agent,
@@ -168,14 +173,21 @@ fn run_scan(args: RemoteScanArgs, format: &str) -> anyhow::Result<()> {
     let scanner = RemoteScanner::new(host, mode)
         .skip_vulnerability(args.skip_vulnerability || args.offline);
 
-    let results = scanner
+    let mut results = scanner
         .scan()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let duration = start.elapsed();
 
-    // Store scan results in history database
+    // Apply suppressions
     let scan_key = format!("remote:{}", results.host.display_name());
+    let suppressions = protectinator_core::suppress::Suppressions::load_default();
+    results.scan_results.findings = suppressions.filter(
+        std::mem::take(&mut results.scan_results.findings),
+        Some(&scan_key),
+    );
+
+    // Store scan results in history database
     match protectinator_data::ScanStore::open(
         &protectinator_data::default_data_dir()
             .unwrap_or_default()

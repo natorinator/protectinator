@@ -13,6 +13,7 @@ pub use sbom_store::SbomStore;
 pub use types::*;
 pub use vuln_store::VulnStore;
 
+pub use protectinator_core::suppress::Suppressions;
 use std::path::{Path, PathBuf};
 
 /// Default data directory: ~/.local/share/protectinator

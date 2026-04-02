@@ -326,11 +326,18 @@ fn run_scan(args: ContainerScanArgs, format: &str) -> anyhow::Result<()> {
             println!();
         }
 
-        let scan_results = scanner.scan(target);
+        let mut scan_results = scanner.scan(target);
         let duration = start.elapsed();
 
-        // Store scan results in history database
+        // Apply suppressions
         let scan_key = format!("container:{}", target.name);
+        let suppressions = protectinator_core::suppress::Suppressions::load_default();
+        scan_results.scan_results.findings = suppressions.filter(
+            std::mem::take(&mut scan_results.scan_results.findings),
+            Some(&scan_key),
+        );
+
+        // Store scan results in history database
         match protectinator_data::ScanStore::open(
             &protectinator_data::default_data_dir()
                 .unwrap_or_default()

@@ -35,7 +35,11 @@ pub fn ssh_exec_timeout(host: &RemoteHost, command: &str, timeout_secs: u64) -> 
 
     // Destination and command
     cmd.arg(host.ssh_dest());
-    cmd.arg(command);
+    if host.use_sudo && host.user != "root" {
+        cmd.arg(format!("sudo -n {}", command));
+    } else {
+        cmd.arg(command);
+    }
 
     debug!("SSH exec ({}s timeout): ssh {} '{}'", timeout_secs, host.ssh_dest(), command);
 
