@@ -112,6 +112,10 @@ pub struct ScanArgs {
     /// Show progress indicator during scan
     #[arg(long)]
     progress: bool,
+
+    /// Only show supply-chain findings with available fixes
+    #[arg(long)]
+    actionable: bool,
 }
 
 /// Simple CLI progress reporter
@@ -275,6 +279,25 @@ pub fn run(args: ScanArgs, format: &str) -> anyhow::Result<()> {
             }
         }
         Err(e) => eprintln!("Warning: failed to open scan history: {}", e),
+    }
+
+    // Enrich supply-chain vulnerability findings with Debian advisory data
+    #[cfg(feature = "supply-chain")]
+    {
+        let enriched = protectinator_supply_chain::enrich::enrich_findings_with_debian_intel(
+            &mut results.findings,
+            None,
+        );
+        if enriched > 0 && !args.quiet && !is_json {
+            println!("  Enriched {} finding(s) with Debian advisory data", enriched);
+        }
+
+        if args.actionable {
+            results.findings =
+                protectinator_supply_chain::enrich::filter_actionable(
+                    std::mem::take(&mut results.findings),
+                );
+        }
     }
 
     // Filter findings by minimum severity

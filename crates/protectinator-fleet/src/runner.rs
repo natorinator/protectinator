@@ -12,6 +12,7 @@ use protectinator_remote::{RemoteScanner, ScanMode};
 use rayon::prelude::*;
 use std::sync::Mutex;
 use std::time::Instant;
+use protectinator_supply_chain::enrich;
 use tracing::{error, info, warn};
 
 /// Options for filtering what to scan
@@ -141,6 +142,17 @@ impl FleetRunner {
                                 Some(&scan_key),
                             );
 
+                            // Enrich with CVE intelligence
+                            if !offline {
+                                let enriched = enrich::enrich_findings_with_debian_intel(
+                                    &mut results.scan_results.findings,
+                                    None,
+                                );
+                                if enriched > 0 {
+                                    info!("Enriched {} findings for host {}", enriched, entry.name);
+                                }
+                            }
+
                             // Store results (after suppression)
                             if let Ok(guard) = db.lock() {
                                 if let Some(ref store) = *guard {
@@ -251,6 +263,17 @@ impl FleetRunner {
                     Some(&scan_key),
                 );
 
+                // Enrich with CVE intelligence
+                if !offline {
+                    let enriched = enrich::enrich_findings_with_debian_intel(
+                        &mut scan_results.scan_results.findings,
+                        None,
+                    );
+                    if enriched > 0 {
+                        info!("Enriched {} findings for container {}", enriched, target.name);
+                    }
+                }
+
                 // Store results
                 if let Ok(guard) = db.lock() {
                     if let Some(ref store) = *guard {
@@ -329,6 +352,17 @@ impl FleetRunner {
                     std::mem::take(&mut results.scan_results.findings),
                     Some(&scan_key),
                 );
+
+                // Enrich with CVE intelligence
+                if !offline {
+                    let enriched = enrich::enrich_findings_with_debian_intel(
+                        &mut results.scan_results.findings,
+                        None,
+                    );
+                    if enriched > 0 {
+                        info!("Enriched {} findings for repo {}", enriched, name);
+                    }
+                }
 
                 // Store results
                 if let Ok(guard) = db.lock() {

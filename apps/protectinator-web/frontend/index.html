@@ -128,6 +128,45 @@
                 </template>
             </div>
 
+            <!-- Penalty Box -->
+            <div x-show="activePenaltyBoxProfiles.length > 0" class="mt-8">
+                <h3 class="text-lg font-semibold mb-3">Penalty Box</h3>
+                <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-800 text-gray-400">
+                            <tr>
+                                <th class="text-left px-4 py-2">Package</th>
+                                <th class="text-left px-4 py-2">CVEs</th>
+                                <th class="text-left px-4 py-2 w-32">Enforcement</th>
+                                <th class="text-left px-4 py-2 w-40">Auto-Lift Version</th>
+                                <th class="text-left px-4 py-2">Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="p in activePenaltyBoxProfiles" :key="p.package">
+                                <tr class="border-t border-gray-800">
+                                    <td class="px-4 py-2 text-white font-medium" x-text="p.package"></td>
+                                    <td class="px-4 py-2">
+                                        <div class="flex flex-wrap gap-1">
+                                            <template x-for="cve in p.cves" :key="cve">
+                                                <span class="bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded text-xs font-mono" x-text="cve"></span>
+                                            </template>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-2">
+                                        <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                              :class="p.restrictions?.network === 'block_all' ? 'bg-red-600 text-white' : 'bg-yellow-600 text-white'"
+                                              x-text="p.restrictions?.network === 'block_all' ? 'Network blocked' : 'Restricted'"></span>
+                                    </td>
+                                    <td class="px-4 py-2 text-gray-400 text-xs font-mono" x-text="p.auto_lift_version || '-'"></td>
+                                    <td class="px-4 py-2 text-gray-400 text-xs" x-text="p.reason"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <div x-show="hosts.length === 0" class="text-gray-500 text-center py-12">
                 No scan data found. Run <code class="bg-gray-800 px-2 py-1 rounded">protectinator scan</code> to get started.
             </div>
@@ -216,6 +255,14 @@
                             <option :value="cat" x-text="cat"></option>
                         </template>
                     </select>
+                    <select class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                            x-model="filterActionability">
+                        <option value="">All actionability</option>
+                        <option value="patchable_now">Patchable now</option>
+                        <option value="waiting_on_upstream">Waiting on upstream</option>
+                        <option value="accepted_risk">Accepted risk</option>
+                        <option value="disputed">Disputed</option>
+                    </select>
                     <span class="text-xs text-gray-500 ml-auto" x-text="filteredFindings.length + ' of ' + scanFindings.length + ' findings'"></span>
                 </div>
 
@@ -233,6 +280,7 @@
                                 <th class="text-left px-4 py-2 w-40 cursor-pointer" @click="toggleSort('check_category')">
                                     Category <span x-show="sortField === 'check_category'" x-text="sortAsc ? '▲' : '▼'"></span>
                                 </th>
+                                <th class="text-left px-4 py-2 w-32">Actionability</th>
                                 <th class="text-left px-4 py-2 w-48">Resource</th>
                             </tr>
                         </thead>
@@ -245,10 +293,17 @@
                                     </td>
                                     <td class="px-4 py-2 text-white" x-text="f.title"></td>
                                     <td class="px-4 py-2 text-gray-400" x-text="f.check_category || '-'"></td>
+                                    <td class="px-4 py-2">
+                                        <span x-show="f.actionability"
+                                              class="px-2 py-0.5 rounded text-xs font-medium"
+                                              :class="actionabilityColor(f.actionability)"
+                                              x-text="actionabilityLabel(f.actionability)"></span>
+                                        <span x-show="!f.actionability" class="text-gray-600">-</span>
+                                    </td>
                                     <td class="px-4 py-2 text-gray-400 truncate max-w-[12rem]" x-text="f.resource || '-'" :title="f.resource"></td>
                                 </tr>
                                 <tr x-show="f._expanded" class="border-t border-gray-800 bg-gray-800/30">
-                                    <td colspan="4" class="px-4 py-3 text-sm">
+                                    <td colspan="5" class="px-4 py-3 text-sm">
                                         <div x-show="f.remediation" class="text-gray-300">
                                             <span class="text-gray-500">Fix:</span> <span x-text="f.remediation"></span>
                                         </div>

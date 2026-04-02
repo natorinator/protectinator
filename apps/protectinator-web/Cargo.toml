@@ -13,6 +13,7 @@ path = "src/main.rs"
 protectinator-core = { workspace = true }
 protectinator-data = { workspace = true }
 protectinator-report = { workspace = true }
+protectinator-penaltybox = { workspace = true }
 
 axum = { workspace = true }
 tokio = { workspace = true }

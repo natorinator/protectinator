@@ -54,6 +54,19 @@ pub struct FleetSummary {
     pub total_new_findings: usize,
     pub total_resolved_findings: usize,
     pub duration_ms: u64,
+    /// CVE actionability breakdown (populated when enrichment is enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actionability: Option<ActionabilityBreakdown>,
+}
+
+/// Actionability breakdown for enriched findings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionabilityBreakdown {
+    pub patchable_now: usize,
+    pub waiting_on_upstream: usize,
+    pub accepted_risk: usize,
+    pub disputed: usize,
+    pub unknown: usize,
 }
 
 /// Findings that should trigger notifications
@@ -144,6 +157,7 @@ impl FleetSummary {
             total_new_findings: all.iter().map(|r| r.new_findings).sum(),
             total_resolved_findings: all.iter().map(|r| r.resolved_findings).sum(),
             duration_ms,
+            actionability: None,
         }
     }
 }

@@ -28,6 +28,10 @@ pub struct StoredFinding {
     pub resource: Option<String>,
     pub check_category: Option<String>,
     pub remediation: Option<String>,
+    /// CVE actionability class (patchable_now, waiting_on_upstream, accepted_risk, disputed, unknown)
+    pub actionability: Option<String>,
+    /// Debian security tracker urgency (unimportant, low, medium, high, etc.)
+    pub debian_urgency: Option<String>,
 }
 
 /// Query parameters for listing scans
@@ -44,6 +48,7 @@ pub struct FindingQuery {
     pub scan_id: Option<i64>,
     pub severity: Option<String>,
     pub check_category: Option<String>,
+    pub actionability: Option<String>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
 }

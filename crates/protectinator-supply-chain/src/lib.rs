@@ -16,6 +16,7 @@
 //! ```
 
 pub mod checks;
+pub mod enrich;
 pub mod feed;
 pub mod gaol;
 pub mod history;

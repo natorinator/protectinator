@@ -13,6 +13,7 @@ pub struct FindingParams {
     scan_id: Option<i64>,
     severity: Option<String>,
     check_category: Option<String>,
+    actionability: Option<String>,
     limit: Option<usize>,
     offset: Option<usize>,
 }
@@ -25,6 +26,7 @@ pub async fn query_findings(
         scan_id: params.scan_id,
         severity: params.severity,
         check_category: params.check_category,
+        actionability: params.actionability,
         limit: params.limit,
         offset: params.offset,
     };

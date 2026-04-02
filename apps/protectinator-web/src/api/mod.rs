@@ -3,6 +3,7 @@
 mod findings;
 mod fleet;
 mod hosts;
+mod penaltybox;
 mod reports;
 mod scans;
 mod sboms;
@@ -36,6 +37,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/sboms/{name}", get(sboms::get_sbom))
         // Fleet
         .route("/api/fleet/summary", get(fleet::fleet_summary))
+        // Penalty Box
+        .route("/api/penalty-box", get(penaltybox::list_profiles))
         // Advisories
         .route("/api/advisories", get(status::list_advisories))
         // Prometheus metrics

@@ -1518,6 +1518,7 @@ dependencies = [
  "protectinator-hardening",
  "protectinator-iot",
  "protectinator-osverify",
+ "protectinator-penaltybox",
  "protectinator-persistence",
  "protectinator-platform",
  "protectinator-privesc",
@@ -1532,6 +1533,21 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "walkdir",
+]
+
+[[package]]
+name = "protectinator-advisory"
+version = "2026.3.28"
+dependencies = [
+ "chrono",
+ "protectinator-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tracing",
+ "ureq",
 ]
 
 [[package]]
@@ -1623,6 +1639,7 @@ name = "protectinator-fleet"
 version = "2026.3.28"
 dependencies = [
  "chrono",
+ "protectinator-advisory",
  "protectinator-container",
  "protectinator-core",
  "protectinator-data",
@@ -1686,6 +1703,19 @@ dependencies = [
  "thiserror 2.0.17",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "protectinator-penaltybox"
+version = "2026.3.28"
+dependencies = [
+ "chrono",
+ "protectinator-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tracing",
 ]
 
 [[package]]
@@ -1784,6 +1814,7 @@ name = "protectinator-supply-chain"
 version = "2026.3.28"
 dependencies = [
  "chrono",
+ "protectinator-advisory",
  "protectinator-container",
  "protectinator-core",
  "regex",
@@ -1809,6 +1840,7 @@ dependencies = [
  "prometheus-client",
  "protectinator-core",
  "protectinator-data",
+ "protectinator-penaltybox",
  "protectinator-report",
  "rust-embed",
  "serde",

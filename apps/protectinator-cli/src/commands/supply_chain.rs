@@ -156,6 +156,10 @@ pub struct SupplyChainScanArgs {
     /// Skip cryptographic trust verification
     #[arg(long)]
     skip_trust: bool,
+
+    /// Only show findings with available fixes (skip accepted-risk, waiting-on-upstream)
+    #[arg(long)]
+    actionable: bool,
 }
 
 #[derive(Args)]
@@ -394,8 +398,28 @@ fn run_scan(args: SupplyChainScanArgs, format: &str) -> anyhow::Result<()> {
         println!();
     }
 
-    let results = scanner.scan();
+    let mut results = scanner.scan();
     let duration = start.elapsed();
+
+    // Enrich vulnerability findings with Debian tracker intelligence
+    if !args.offline {
+        let enriched = protectinator_supply_chain::enrich::enrich_findings_with_debian_intel(
+            &mut results.scan_results.findings,
+            None,
+        );
+        if enriched > 0 && !is_json {
+            println!("  Enriched {} finding(s) with Debian advisory data", enriched);
+            println!();
+        }
+    }
+
+    // Filter to actionable findings if requested
+    if args.actionable {
+        results.scan_results.findings =
+            protectinator_supply_chain::enrich::filter_actionable(
+                std::mem::take(&mut results.scan_results.findings),
+            );
+    }
 
     let repo_key = root.canonicalize().unwrap_or(root.clone())
         .display().to_string();
@@ -587,6 +611,20 @@ fn run_scan(args: SupplyChainScanArgs, format: &str) -> anyhow::Result<()> {
             results.scan_results.summary.findings_by_severity.get(&Severity::Info).unwrap_or(&0),
             duration
         );
+
+        // Print actionability summary if any findings were enriched
+        let action_summary = protectinator_supply_chain::enrich::actionability_summary(
+            &results.scan_results.findings,
+        );
+        if action_summary.patchable_now > 0
+            || action_summary.waiting_on_upstream > 0
+            || action_summary.accepted_risk > 0
+        {
+            println!();
+            println!("  Actionability:");
+            print!("{}", action_summary);
+        }
+
         println!();
     }
 

@@ -27,6 +27,7 @@ pub mod verify;
 #[cfg(feature = "yara")]
 pub mod yara;
 pub mod fleet;
+pub mod penalty_box;
 #[cfg(feature = "remote")]
 pub mod remote;
 pub mod report;

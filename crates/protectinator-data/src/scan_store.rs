@@ -19,6 +19,13 @@ impl ScanStore {
         }
         let conn = Connection::open(path)
             .map_err(|e| format!("Failed to open scan history: {}", e))?;
+        // Migrate schema: add new columns if they don't exist
+        conn.execute_batch(
+            "ALTER TABLE findings ADD COLUMN actionability TEXT;",
+        ).ok(); // Ignore error if column already exists
+        conn.execute_batch(
+            "ALTER TABLE findings ADD COLUMN debian_urgency TEXT;",
+        ).ok(); // Ignore error if column already exists
         Ok(Self { conn })
     }
 
@@ -51,6 +58,8 @@ impl ScanStore {
                 resource TEXT,
                 check_category TEXT,
                 remediation TEXT,
+                actionability TEXT,
+                debian_urgency TEXT,
                 FOREIGN KEY (scan_id) REFERENCES scans(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_scans_repo ON scans(repo_path, scanned_at DESC);
@@ -153,7 +162,7 @@ impl ScanStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, scan_id, finding_id, title, severity, resource, check_category, remediation
+                "SELECT id, scan_id, finding_id, title, severity, resource, check_category, remediation, actionability, debian_urgency
                  FROM findings WHERE scan_id = ?1
                  ORDER BY CASE severity
                     WHEN 'Critical' THEN 1
@@ -178,7 +187,7 @@ impl ScanStore {
     /// Query findings across all scans
     pub fn query_findings(&self, query: &FindingQuery) -> Result<Vec<StoredFinding>, String> {
         let mut sql = String::from(
-            "SELECT f.id, f.scan_id, f.finding_id, f.title, f.severity, f.resource, f.check_category, f.remediation
+            "SELECT f.id, f.scan_id, f.finding_id, f.title, f.severity, f.resource, f.check_category, f.remediation, f.actionability, f.debian_urgency
              FROM findings f",
         );
 
@@ -199,6 +208,11 @@ impl ScanStore {
         if let Some(ref category) = query.check_category {
             conditions.push(format!("f.check_category = ?{}", param_idx));
             params_vec.push(Box::new(category.clone()));
+            param_idx += 1;
+        }
+        if let Some(ref actionability) = query.actionability {
+            conditions.push(format!("f.actionability = ?{}", param_idx));
+            params_vec.push(Box::new(actionability.clone()));
             // param_idx not needed after last use
         }
 
@@ -384,10 +398,26 @@ impl ScanStore {
 
         for f in findings {
             let check_category = extract_check_category(&f.source);
+
+            // Extract actionability class from metadata
+            let actionability = f
+                .metadata
+                .get("actionability")
+                .and_then(|v| v.get("class"))
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            // Extract debian urgency from metadata
+            let debian_urgency = f
+                .metadata
+                .get("debian_urgency")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
             self.conn
                 .execute(
-                    "INSERT INTO findings (scan_id, finding_id, title, severity, resource, check_category, remediation)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    "INSERT INTO findings (scan_id, finding_id, title, severity, resource, check_category, remediation, actionability, debian_urgency)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                     params![
                         scan_id,
                         f.id,
@@ -396,6 +426,8 @@ impl ScanStore {
                         f.resource,
                         check_category,
                         f.remediation,
+                        actionability,
+                        debian_urgency,
                     ],
                 )
                 .map_err(|e| format!("Failed to store finding: {}", e))?;
@@ -453,5 +485,7 @@ fn row_to_finding(row: &rusqlite::Row) -> rusqlite::Result<StoredFinding> {
         resource: row.get(5)?,
         check_category: row.get(6)?,
         remediation: row.get(7)?,
+        actionability: row.get(8)?,
+        debian_urgency: row.get(9)?,
     })
 }

@@ -21,6 +21,8 @@ function app() {
         filterCategory: '',
         sortField: 'severity',
         sortAsc: true,
+        filterActionability: '',
+        penaltyBoxProfiles: [],
         sbomSearch: '',
         sbomSearchResults: [],
         trendChart: null,
@@ -30,6 +32,7 @@ function app() {
                 this.loadStatus(),
                 this.loadHosts(),
                 this.loadFleetSummary(),
+                this.loadPenaltyBox(),
             ]);
         },
 
@@ -66,6 +69,15 @@ function app() {
                 this.fleet = await res.json();
             } catch (e) {
                 this.fleet = {};
+            }
+        },
+
+        async loadPenaltyBox() {
+            try {
+                const res = await fetch('/api/penalty-box');
+                this.penaltyBoxProfiles = await res.json();
+            } catch (e) {
+                this.penaltyBoxProfiles = [];
             }
         },
 
@@ -195,6 +207,7 @@ function app() {
             this.findingSearch = '';
             this.filterSeverity = '';
             this.filterCategory = '';
+            this.filterActionability = '';
             this.sortField = 'severity';
             this.sortAsc = true;
             try {
@@ -322,6 +335,11 @@ function app() {
                 results = results.filter(f => f.check_category === this.filterCategory);
             }
 
+            // Actionability filter
+            if (this.filterActionability) {
+                results = results.filter(f => (f.actionability || '') === this.filterActionability);
+            }
+
             // Sort
             results = [...results].sort((a, b) => {
                 let cmp = 0;
@@ -336,6 +354,30 @@ function app() {
             });
 
             return results;
+        },
+
+        actionabilityColor(cls) {
+            switch (cls) {
+                case 'patchable_now': return 'bg-green-600 text-white';
+                case 'waiting_on_upstream': return 'bg-yellow-600 text-white';
+                case 'accepted_risk': return 'bg-gray-600 text-white';
+                case 'disputed': return 'bg-red-600 text-white';
+                default: return 'bg-gray-700 text-gray-300';
+            }
+        },
+
+        actionabilityLabel(cls) {
+            switch (cls) {
+                case 'patchable_now': return 'Patchable';
+                case 'waiting_on_upstream': return 'Waiting';
+                case 'accepted_risk': return 'Accepted';
+                case 'disputed': return 'Disputed';
+                default: return '';
+            }
+        },
+
+        get activePenaltyBoxProfiles() {
+            return this.penaltyBoxProfiles.filter(p => p.active);
         },
 
         toggleSort(field) {

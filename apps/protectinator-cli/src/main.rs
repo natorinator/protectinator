@@ -247,6 +247,14 @@ enum Commands {
     #[command(subcommand)]
     Remote(commands::remote::RemoteCommands),
 
+    /// Penalty Box — sandbox vulnerable packages
+    ///
+    /// Auto-sandbox packages with unpatchable CVEs using Gaol/Landlock.
+    /// Restricts filesystem and network access based on CVE type
+    /// to contain the blast radius of unpatched vulnerabilities.
+    #[command(subcommand, name = "penalty-box")]
+    PenaltyBox(commands::penalty_box::PenaltyBoxCommands),
+
     /// Fleet management — scan multiple hosts, containers, and repos
     ///
     /// Scan your entire fleet from a single TOML config file.
@@ -316,6 +324,7 @@ fn main() -> anyhow::Result<()> {
         Commands::SupplyChain(cmd) => commands::supply_chain::run(cmd, format_str),
         #[cfg(feature = "remote")]
         Commands::Remote(cmd) => commands::remote::run(cmd, format_str),
+        Commands::PenaltyBox(cmd) => commands::penalty_box::run(cmd, format_str),
         Commands::Fleet(cmd) => commands::fleet::run(cmd, format_str),
         Commands::Report(args) => commands::report::run(args),
         Commands::Info => commands::info::run(),
