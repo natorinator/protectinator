@@ -26,6 +26,7 @@ function app() {
         sbomSearch: '',
         sbomSearchResults: [],
         trendChart: null,
+        user: null,
 
         async init() {
             await Promise.all([
@@ -33,6 +34,7 @@ function app() {
                 this.loadHosts(),
                 this.loadFleetSummary(),
                 this.loadPenaltyBox(),
+                this.loadUser(),
             ]);
         },
 
@@ -50,6 +52,17 @@ function app() {
                 this.previousView = null;
             } else {
                 this.view = 'dashboard';
+            }
+        },
+
+        async loadUser() {
+            try {
+                const res = await fetch('/api/me');
+                if (res.ok) {
+                    this.user = await res.json();
+                }
+            } catch (e) {
+                // Auth may be disabled
             }
         },
 

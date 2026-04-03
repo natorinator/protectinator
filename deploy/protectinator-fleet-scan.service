@@ -1,0 +1,15 @@
+[Unit]
+Description=Protectinator Fleet Security Scan
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=erewhon
+ExecStart=/usr/local/bin/protectinator fleet scan
+# Allow up to 30 minutes for a full fleet scan
+TimeoutStartSec=1800
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=protectinator-fleet-scan

@@ -18,6 +18,8 @@ pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         // Status
         .route("/api/status", get(status::get_status))
+        // User identity
+        .route("/api/me", get(crate::auth::get_me))
         // Scans
         .route("/api/scans", get(scans::list_scans))
         .route("/api/scans/{id}", get(scans::get_scan))

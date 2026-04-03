@@ -4,6 +4,7 @@
 //! host status, and advisory feeds.
 
 mod api;
+mod auth;
 mod frontend;
 mod metrics;
 
@@ -31,6 +32,10 @@ struct Cli {
     /// Enable verbose logging
     #[arg(long, short)]
     verbose: bool,
+
+    /// Disable authentication (for local development)
+    #[arg(long)]
+    no_auth: bool,
 }
 
 /// Shared application state
@@ -74,6 +79,15 @@ async fn main() {
     // Build router
     let app = api::router(state.clone())
         .fallback(frontend::serve_frontend);
+
+    // Apply auth middleware to ALL routes
+    let app = if cli.no_auth {
+        info!("Authentication disabled (--no-auth)");
+        app.layer(axum::middleware::from_fn(auth::dev_auth))
+    } else {
+        info!("Authentication enabled (Tailscale identity headers)");
+        app.layer(axum::middleware::from_fn(auth::require_auth))
+    };
 
     // Start server
     let addr: SocketAddr = cli

@@ -1,0 +1,20 @@
+[Unit]
+Description=Protectinator Web Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+ExecStart=/usr/local/bin/protectinator-web --bind 127.0.0.1:8080
+Restart=on-failure
+RestartSec=5
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/erewhon/.local/share/protectinator
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

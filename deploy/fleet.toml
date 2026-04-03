@@ -1,0 +1,49 @@
+# Protectinator Fleet Configuration for Euclid
+# Tailscale hostnames used for all connectivity
+
+[settings]
+parallel = 4
+save_history = true
+
+# Remote hosts to scan
+# Add more hosts as they join the tailnet
+
+[[hosts]]
+name = "euclid"
+host = "euclid"
+user = "erewhon"
+sudo = true
+
+[[hosts]]
+name = "archimedes"
+host = "archimedes"
+user = "erewhon"
+sudo = true
+
+[[hosts]]
+name = "hypatia"
+host = "hypatia"
+user = "erewhon"
+sudo = true
+
+[[hosts]]
+name = "merope"
+host = "merope"
+user = "erewhon"
+sudo = true
+
+# Container scanning
+[containers]
+scan_all = true
+
+# Source repositories to scan
+# Add your active project paths here (on the scanning host)
+
+# [[repos]]
+# path = "~/Projects/project-name"
+# ecosystem = "rust"  # optional: rust, python, node, etc.
+
+# Webhook notifications (optional)
+# [notifications.webhook]
+# url = "https://hooks.example.com/protectinator"
+# on = ["new_critical", "new_high"]

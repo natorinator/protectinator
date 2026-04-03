@@ -20,7 +20,17 @@
             <button class="nav-btn" :class="{ 'active': view === 'scans' }" @click="navigate('scans')">Scans</button>
             <button class="nav-btn" :class="{ 'active': view === 'advisories' }" @click="navigate('advisories')">Advisories</button>
             <button class="nav-btn" :class="{ 'active': view === 'sboms' }" @click="navigate('sboms')">SBOMs</button>
-            <div class="ml-auto text-sm text-gray-500" x-text="statusText"></div>
+            <div class="ml-auto flex items-center gap-3">
+                <span class="text-sm text-gray-500" x-text="statusText"></span>
+                <template x-if="user">
+                    <div class="flex items-center gap-2 text-sm">
+                        <template x-if="user.profile_pic">
+                            <img :src="user.profile_pic" class="w-6 h-6 rounded-full" />
+                        </template>
+                        <span class="text-gray-400" x-text="user.name || user.login"></span>
+                    </div>
+                </template>
+            </div>
         </nav>
 
         <!-- Dashboard View -->
