@@ -340,6 +340,12 @@ impl FleetRunner {
                 }
 
                 let mut results = scanner.scan();
+
+                // Also run secrets scanning on the repo
+                let secrets_findings = protectinator_secrets::SecretsScanner::new(path.clone())
+                    .scan();
+                results.scan_results.findings.extend(secrets_findings);
+
                 let duration_ms = start.elapsed().as_millis() as u64;
                 let scan_key = path
                     .canonicalize()

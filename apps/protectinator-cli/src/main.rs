@@ -234,6 +234,17 @@ enum Commands {
     #[command(subcommand, name = "supply-chain")]
     SupplyChain(commands::supply_chain::SupplyChainCommands),
 
+    /// Secrets and credential scanner
+    ///
+    /// Scan for leaked API keys, tokens, passwords, and other credentials:
+    /// - Configuration files (.env, YAML, TOML, JSON)
+    /// - Shell history (bash, zsh, fish)
+    /// - Environment variables and systemd services
+    /// - Git commit history
+    #[cfg(feature = "secrets")]
+    #[command(subcommand)]
+    Secrets(commands::secrets::SecretsCommands),
+
     /// Remote host security scanner
     ///
     /// Scan remote hosts via SSH for security issues:
@@ -322,6 +333,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Iot(cmd) => commands::iot::run(cmd, format_str),
         #[cfg(feature = "supply-chain")]
         Commands::SupplyChain(cmd) => commands::supply_chain::run(cmd, format_str),
+        #[cfg(feature = "secrets")]
+        Commands::Secrets(cmd) => commands::secrets::run(cmd, format_str),
         #[cfg(feature = "remote")]
         Commands::Remote(cmd) => commands::remote::run(cmd, format_str),
         Commands::PenaltyBox(cmd) => commands::penalty_box::run(cmd, format_str),

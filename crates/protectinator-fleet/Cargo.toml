@@ -12,6 +12,7 @@ protectinator-remote = { workspace = true }
 protectinator-container = { workspace = true }
 protectinator-supply-chain = { workspace = true }
 protectinator-advisory = { workspace = true }
+protectinator-secrets = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

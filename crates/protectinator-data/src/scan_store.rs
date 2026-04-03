@@ -472,6 +472,7 @@ fn extract_check_category(source: &FindingSource) -> Option<String> {
         FindingSource::Container { inner_source, .. } => extract_check_category(inner_source),
         FindingSource::IoT { inner_source, .. } => extract_check_category(inner_source),
         FindingSource::Remote { inner_source, .. } => extract_check_category(inner_source),
+        FindingSource::Secrets { check_category, .. } => Some(check_category.clone()),
     }
 }
 

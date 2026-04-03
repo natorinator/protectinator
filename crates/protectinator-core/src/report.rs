@@ -108,6 +108,11 @@ pub enum FindingSource {
         scan_mode: String,
         inner_source: Box<FindingSource>,
     },
+    /// Finding from secrets/credential scanning
+    Secrets {
+        check_category: String,
+        secret_type: Option<String>,
+    },
 }
 
 /// Type of file change detected

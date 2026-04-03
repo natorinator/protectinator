@@ -1525,6 +1525,7 @@ dependencies = [
  "protectinator-procmon",
  "protectinator-remote",
  "protectinator-report",
+ "protectinator-secrets",
  "protectinator-sigma",
  "protectinator-supply-chain",
  "protectinator-yara",
@@ -1644,6 +1645,7 @@ dependencies = [
  "protectinator-core",
  "protectinator-data",
  "protectinator-remote",
+ "protectinator-secrets",
  "protectinator-supply-chain",
  "rayon",
  "serde",
@@ -1789,6 +1791,21 @@ dependencies = [
  "genpdf",
  "protectinator-core",
  "protectinator-data",
+]
+
+[[package]]
+name = "protectinator-secrets"
+version = "2026.3.28"
+dependencies = [
+ "chrono",
+ "protectinator-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tracing",
+ "walkdir",
 ]
 
 [[package]]
