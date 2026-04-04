@@ -29,18 +29,13 @@ function app() {
         user: null,
 
         async init() {
-            // Hash-based routing
-            const hash = window.location.hash.slice(1);
-            if (hash) this.view = hash;
+            // History-based routing
+            this._handleRoute(window.location.hash.slice(1));
 
-            window.addEventListener('hashchange', () => {
-                const hash = window.location.hash.slice(1);
-                if (hash && hash !== this.view) {
-                    this.view = hash;
-                    if (hash === 'scans') this.loadAllScans();
-                    if (hash === 'advisories') this.loadAdvisories();
-                    if (hash === 'sboms') this.loadSboms();
-                }
+            window.addEventListener('popstate', () => {
+                this._skipPush = true;
+                this._handleRoute(window.location.hash.slice(1));
+                this._skipPush = false;
             });
 
             await Promise.all([
@@ -58,21 +53,41 @@ function app() {
         },
 
         navigate(view) {
-            this.previousView = this.view;
             this.view = view;
-            window.location.hash = view;
+            if (!this._skipPush) {
+                history.pushState(null, '', '#' + view);
+            }
             if (view === 'scans') this.loadAllScans();
             if (view === 'advisories') this.loadAdvisories();
             if (view === 'sboms') this.loadSboms();
         },
 
         goBack() {
-            if (this.previousView) {
-                this.view = this.previousView;
-                this.previousView = null;
-            } else {
+            history.back();
+        },
+
+        _handleRoute(hash) {
+            if (!hash || hash === '') {
                 this.view = 'dashboard';
+                return;
             }
+            // Handle parameterized routes: host/NAME, scan/ID
+            if (hash.startsWith('host/')) {
+                const name = decodeURIComponent(hash.slice(5));
+                this.viewHost(name);
+                return;
+            }
+            if (hash.startsWith('scan/')) {
+                const id = parseInt(hash.slice(5), 10);
+                if (!isNaN(id)) {
+                    this.viewScan(id);
+                    return;
+                }
+            }
+            this.view = hash;
+            if (hash === 'scans') this.loadAllScans();
+            if (hash === 'advisories') this.loadAdvisories();
+            if (hash === 'sboms') this.loadSboms();
         },
 
         async loadUser() {
@@ -134,8 +149,10 @@ function app() {
 
         async viewHost(name) {
             this.selectedHost = name;
-            this.previousView = this.view;
             this.view = 'host';
+            if (!this._skipPush) {
+                history.pushState(null, '', '#host/' + encodeURIComponent(name));
+            }
             try {
                 const res = await fetch(`/api/hosts/${encodeURIComponent(name)}/timeline?limit=20`);
                 this.hostScans = await res.json();
@@ -235,8 +252,10 @@ function app() {
         },
 
         async viewScan(id) {
-            this.previousView = this.view;
             this.view = 'scan';
+            if (!this._skipPush) {
+                history.pushState(null, '', '#scan/' + id);
+            }
             this.findingSearch = '';
             this.filterSeverity = '';
             this.filterCategory = '';
@@ -360,7 +379,7 @@ function app() {
         },
 
         get filteredFindings() {
-            const sevOrder = { Critical: 1, High: 2, Medium: 3, Low: 4, Info: 5 };
+            const sevOrder = { critical: 1, high: 2, medium: 3, low: 4, info: 5 };
             let results = this.scanFindings;
 
             // Text search
@@ -374,9 +393,10 @@ function app() {
                 );
             }
 
-            // Severity filter
+            // Severity filter (data is lowercase, filter values are capitalized)
             if (this.filterSeverity) {
-                results = results.filter(f => f.severity === this.filterSeverity);
+                const sev = this.filterSeverity.toLowerCase();
+                results = results.filter(f => f.severity.toLowerCase() === sev);
             }
 
             // Category filter
