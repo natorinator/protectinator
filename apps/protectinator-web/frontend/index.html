@@ -38,10 +38,18 @@
             <h2 class="text-xl font-semibold mb-4">Fleet Overview</h2>
 
             <!-- Fleet Summary -->
-            <div class="grid grid-cols-6 gap-4 mb-6">
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-4 mb-6">
                 <div class="stat-card">
                     <div class="text-3xl font-bold" x-text="fleet.total_hosts || 0"></div>
                     <div class="text-gray-400 text-sm">Hosts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold" x-text="fleet.total_containers || 0"></div>
+                    <div class="text-gray-400 text-sm">Containers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold" x-text="fleet.total_repos || 0"></div>
+                    <div class="text-gray-400 text-sm">Repos</div>
                 </div>
                 <div class="stat-card">
                     <div class="text-3xl font-bold text-red-400" x-text="fleet.total_critical || 0"></div>
@@ -54,14 +62,6 @@
                 <div class="stat-card">
                     <div class="text-3xl font-bold text-yellow-500" x-text="fleet.total_medium || 0"></div>
                     <div class="text-gray-400 text-sm">Medium</div>
-                </div>
-                <div class="stat-card">
-                    <div class="text-3xl font-bold" x-text="status.scan_count || 0"></div>
-                    <div class="text-gray-400 text-sm">Total Scans</div>
-                </div>
-                <div class="stat-card">
-                    <div class="text-3xl font-bold" x-text="status.sbom_count || 0"></div>
-                    <div class="text-gray-400 text-sm">SBOMs</div>
                 </div>
             </div>
 
@@ -87,7 +87,7 @@
                 <div class="space-y-1">
                     <template x-for="host in (fleet.needs_attention || [])" :key="host.name">
                         <div class="flex items-center gap-3 text-sm cursor-pointer hover:text-white" @click="viewHost(host.name)">
-                            <span class="text-white" x-text="host.name"></span>
+                            <span class="text-white" x-text="getHostDisplayName(host.name)"></span>
                             <span class="severity-badge critical" x-show="host.latest_critical > 0" x-text="'C:' + host.latest_critical"></span>
                             <span class="severity-badge high" x-show="host.latest_high > 0" x-text="'H:' + host.latest_high"></span>
                         </div>
@@ -113,17 +113,17 @@
                         x-model="hostTypeFilter">
                     <option value="">All types</option>
                     <template x-for="t in hostTypes" :key="t">
-                        <option :value="t" x-text="t"></option>
+                        <option :value="t" x-text="getHostTypeLabel(t)"></option>
                     </template>
                 </select>
-                <span class="text-xs text-gray-500 ml-auto" x-text="filteredHosts.length + ' of ' + hosts.length + ' hosts'"></span>
+                <span class="text-xs text-gray-500 ml-auto" x-text="filteredHosts.length + ' of ' + hosts.length + ' targets'"></span>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <template x-for="host in filteredHosts" :key="host.name">
                     <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 cursor-pointer hover:border-gray-600 transition"
                          @click="viewHost(host.name)">
                         <div class="flex justify-between items-start mb-2">
-                            <h4 class="font-semibold text-white" x-text="host.name"></h4>
+                            <h4 class="font-semibold text-white" x-text="getHostDisplayName(host.name)"></h4>
                             <span class="text-xs text-gray-500" x-text="formatDate(host.last_scanned)"></span>
                         </div>
                         <div class="flex gap-2 text-xs">

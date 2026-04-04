@@ -29,6 +29,20 @@ function app() {
         user: null,
 
         async init() {
+            // Hash-based routing
+            const hash = window.location.hash.slice(1);
+            if (hash) this.view = hash;
+
+            window.addEventListener('hashchange', () => {
+                const hash = window.location.hash.slice(1);
+                if (hash && hash !== this.view) {
+                    this.view = hash;
+                    if (hash === 'scans') this.loadAllScans();
+                    if (hash === 'advisories') this.loadAdvisories();
+                    if (hash === 'sboms') this.loadSboms();
+                }
+            });
+
             await Promise.all([
                 this.loadStatus(),
                 this.loadHosts(),
@@ -36,11 +50,17 @@ function app() {
                 this.loadPenaltyBox(),
                 this.loadUser(),
             ]);
+
+            // Load data for initial hash view
+            if (hash === 'scans') this.loadAllScans();
+            if (hash === 'advisories') this.loadAdvisories();
+            if (hash === 'sboms') this.loadSboms();
         },
 
         navigate(view) {
             this.previousView = this.view;
             this.view = view;
+            window.location.hash = view;
             if (view === 'scans') this.loadAllScans();
             if (view === 'advisories') this.loadAdvisories();
             if (view === 'sboms') this.loadSboms();
@@ -279,6 +299,22 @@ function app() {
             if (name.startsWith('iot:')) return 'iot';
             if (name.startsWith('/')) return 'repo';
             return 'other';
+        },
+
+        getHostTypeLabel(type) {
+            const labels = { remote: 'Host', container: 'Container', repo: 'Repo', local: 'Local', iot: 'IoT' };
+            return labels[type] || type;
+        },
+
+        getHostDisplayName(name) {
+            if (name.startsWith('remote:')) return name.slice(7);
+            if (name.startsWith('container:')) return name.slice(10);
+            if (name.startsWith('/')) {
+                // Show last path component(s) for repos
+                const parts = name.split('/');
+                return parts.slice(-2).join('/');
+            }
+            return name;
         },
 
         get hostTypes() {

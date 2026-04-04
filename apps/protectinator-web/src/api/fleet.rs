@@ -19,7 +19,9 @@ pub async fn fleet_summary(
         .list_hosts()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let total_hosts = hosts.len();
+    let total_hosts = hosts.iter().filter(|h| h.name.starts_with("remote:")).count();
+    let total_containers = hosts.iter().filter(|h| h.name.starts_with("container:")).count();
+    let total_repos = hosts.iter().filter(|h| h.name.starts_with("/")).count();
     let total_critical: usize = hosts.iter().map(|h| h.latest_critical).sum();
     let total_high: usize = hosts.iter().map(|h| h.latest_high).sum();
     let total_medium: usize = hosts.iter().map(|h| h.latest_medium).sum();
@@ -55,6 +57,8 @@ pub async fn fleet_summary(
 
     Ok(Json(serde_json::json!({
         "total_hosts": total_hosts,
+        "total_containers": total_containers,
+        "total_repos": total_repos,
         "total_critical": total_critical,
         "total_high": total_high,
         "total_medium": total_medium,
