@@ -13,6 +13,7 @@ name = "euclid"
 host = "euclid"
 user = "erewhon"
 sudo = true
+scan_containers = true
 
 [[hosts]]
 name = "archimedes"
@@ -37,6 +38,7 @@ name = "delphi"
 host = "delphi"
 user = "erewhon"
 sudo = true
+scan_containers = true
 
 # Container scanning
 [containers]

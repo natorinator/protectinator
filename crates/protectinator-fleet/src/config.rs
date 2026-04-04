@@ -72,6 +72,9 @@ pub struct HostEntry {
     /// Use sudo for privileged commands
     #[serde(default)]
     pub sudo: bool,
+    /// Also scan containers on this host (requires protectinator installed remotely)
+    #[serde(default)]
+    pub scan_containers: bool,
 }
 
 fn default_user() -> String {

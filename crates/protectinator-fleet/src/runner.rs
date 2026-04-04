@@ -53,19 +53,20 @@ impl FleetRunner {
         };
         let db = Mutex::new(db);
 
-        // Scan hosts in parallel
-        let host_results = if !opts.containers_only && !opts.repos_only {
+        // Scan hosts in parallel (also returns remote container results)
+        let (host_results, remote_container_results) = if !opts.containers_only && !opts.repos_only {
             self.scan_hosts(&db, offline, &suppressions)
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
 
-        // Scan containers (sequential — shared local filesystem)
-        let container_results = if !opts.hosts_only && !opts.repos_only {
+        // Scan local containers + merge remote container results
+        let mut container_results = if !opts.hosts_only && !opts.repos_only {
             self.scan_containers(&db, offline, &suppressions)
         } else {
             Vec::new()
         };
+        container_results.extend(remote_container_results);
 
         // Scan repos (sequential)
         let repo_results = if !opts.hosts_only && !opts.containers_only {
@@ -104,14 +105,15 @@ impl FleetRunner {
     }
 
     /// Scan remote hosts in parallel using rayon
+    /// Returns (host_results, remote_container_results)
     fn scan_hosts(
         &self,
         db: &Mutex<Option<ScanStore>>,
         offline: bool,
         suppressions: &Suppressions,
-    ) -> Vec<FleetTargetResult> {
+    ) -> (Vec<FleetTargetResult>, Vec<FleetTargetResult>) {
         if self.config.hosts.is_empty() {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
 
         let pool = rayon::ThreadPoolBuilder::new()
@@ -119,7 +121,7 @@ impl FleetRunner {
             .build()
             .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
-        pool.install(|| {
+        let all_results = pool.install(|| {
             self.config
                 .hosts
                 .par_iter()
@@ -178,20 +180,34 @@ impl FleetRunner {
                                 entry.name, result.total_findings, duration_ms
                             );
 
-                            result
+                            // Also scan containers on this host if configured
+                            let mut all_results = vec![result];
+                            if entry.scan_containers {
+                                let container_findings =
+                                    scan_remote_containers(entry, suppressions, db);
+                                all_results.extend(container_findings);
+                            }
+                            all_results
                         }
                         Err(e) => {
                             error!("Host {} failed: {}", entry.name, e);
-                            FleetTargetResult::error(
+                            vec![FleetTargetResult::error(
                                 entry.name.clone(),
                                 "remote",
                                 e.to_string(),
-                            )
+                            )]
                         }
                     }
                 })
-                .collect()
-        })
+                .flatten()
+                .collect::<Vec<FleetTargetResult>>()
+        });
+
+        // Separate host results from remote container results
+        let (hosts, containers): (Vec<_>, Vec<_>) = all_results
+            .into_iter()
+            .partition(|r| r.target_type != "container");
+        (hosts, containers)
     }
 
     /// Scan containers sequentially
@@ -399,6 +415,139 @@ impl FleetRunner {
             })
             .collect()
     }
+}
+
+/// Scan containers on a remote host by running protectinator remotely
+fn scan_remote_containers(
+    entry: &crate::config::HostEntry,
+    suppressions: &Suppressions,
+    db: &Mutex<Option<ScanStore>>,
+) -> Vec<FleetTargetResult> {
+    let start = Instant::now();
+
+    // Build SSH command
+    let port_str = entry.port.to_string();
+    let mut ssh_args: Vec<&str> = vec![
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        "-p", &port_str,
+    ];
+    let key_str;
+    if let Some(ref key) = entry.key {
+        key_str = key.display().to_string();
+        ssh_args.push("-i");
+        ssh_args.push(&key_str);
+    }
+    let remote = format!("{}@{}", entry.user, entry.host);
+    ssh_args.push(&remote);
+
+    let cmd = if entry.sudo {
+        "sudo protectinator container scan --all --format json"
+    } else {
+        "protectinator container scan --all --format json"
+    };
+    ssh_args.push(cmd);
+
+    let output = match std::process::Command::new("ssh")
+        .args(&ssh_args)
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            warn!("Failed to scan containers on {}: {}", entry.name, e);
+            return Vec::new();
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("not found") || stderr.contains("No such file") {
+            info!(
+                "protectinator not installed on {}, skipping container scan",
+                entry.name
+            );
+        } else {
+            warn!(
+                "Container scan failed on {}: {}",
+                entry.name,
+                stderr.trim()
+            );
+        }
+        return Vec::new();
+    }
+
+    // Parse JSON output — one JSON object per container (newline-delimited)
+    // Each object: {"container": {"name": "...", ...}, "findings": [...]}
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    use std::collections::HashMap;
+    let mut by_container: HashMap<String, Vec<protectinator_core::Finding>> = HashMap::new();
+
+    // Use a streaming JSON deserializer to handle multiple top-level values
+    let mut deserializer = serde_json::Deserializer::from_str(&stdout).into_iter::<serde_json::Value>();
+    while let Some(Ok(obj)) = deserializer.next() {
+        let container_name = obj
+            .get("container")
+            .and_then(|c| c.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Try both "findings" (flat) and "scan_results.findings" (nested) formats
+        let findings_arr = obj.get("findings").and_then(|f| f.as_array())
+            .or_else(|| obj.get("scan_results").and_then(|sr| sr.get("findings")).and_then(|f| f.as_array()));
+        if let Some(findings_arr) = findings_arr {
+            let findings: Vec<protectinator_core::Finding> = findings_arr
+                .iter()
+                .filter_map(|f| serde_json::from_value(f.clone()).ok())
+                .collect();
+            by_container.entry(container_name).or_default().extend(findings);
+        }
+    }
+
+    if by_container.is_empty() {
+        info!("No container findings from {}", entry.name);
+        return Vec::new();
+    }
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let mut results = Vec::new();
+
+    for (container_name, mut container_findings) in by_container {
+        let scan_key = format!("container:{}@{}", container_name, entry.name);
+
+        // Apply suppressions
+        container_findings = suppressions.filter(container_findings, Some(&scan_key));
+
+        // Store to DB
+        if let Ok(guard) = db.lock() {
+            if let Some(ref store) = *guard {
+                let store_key = format!("container:{}@{}", container_name, entry.name);
+                if let Err(e) = store.store_scan(&store_key, &container_findings, 0) {
+                    warn!(
+                        "Failed to store container scan for {}: {}",
+                        container_name, e
+                    );
+                }
+            }
+        }
+
+        let display_name = format!("{}@{}", container_name, entry.name);
+        let result = FleetTargetResult::from_findings(
+            display_name,
+            "container",
+            &container_findings,
+            duration_ms,
+        );
+
+        info!(
+            "Container {} on {}: {} findings",
+            container_name, entry.name, result.total_findings
+        );
+        results.push(result);
+    }
+
+    results
 }
 
 /// Collect findings that should trigger notifications
