@@ -205,7 +205,9 @@ impl SecretsScanner {
 
         let reader = BufReader::new(file);
         let is_config = is_config_file(path);
+        let is_rust = path.extension().map_or(false, |e| e == "rs");
         let mut seen_patterns: HashSet<String> = HashSet::new();
+        let mut in_test_block = false;
 
         for (line_num, line) in reader.lines().enumerate() {
             let line = match line {
@@ -216,6 +218,21 @@ impl SecretsScanner {
             // Skip empty lines and comments
             let trimmed = line.trim();
             if trimmed.is_empty() {
+                continue;
+            }
+
+            // Track test context in Rust files to skip mock/test secrets
+            if is_rust {
+                if trimmed == "#[cfg(test)]" || trimmed.starts_with("mod tests") {
+                    in_test_block = true;
+                }
+                if in_test_block {
+                    continue;
+                }
+            }
+
+            // Skip lines that are clearly test/example patterns in any language
+            if is_test_line(trimmed) {
                 continue;
             }
 
@@ -283,6 +300,27 @@ impl SecretsScanner {
             }
         }
     }
+}
+
+/// Check if a line looks like test/example code rather than a real secret
+fn is_test_line(trimmed: &str) -> bool {
+    // Common test/assertion patterns
+    if trimmed.starts_with("assert") || trimmed.starts_with("expect(") {
+        return true;
+    }
+    // String construction for tests (format!, concat!, vec![)
+    if trimmed.starts_with("let ") && (trimmed.contains("format!(") || trimmed.contains("concat!(")) {
+        return true;
+    }
+    // Comments describing patterns
+    if trimmed.starts_with("//") || trimmed.starts_with("#") || trimmed.starts_with("*") {
+        return true;
+    }
+    // Regex pattern definitions (the pattern itself, not a real secret)
+    if trimmed.contains("Regex::new(") || trimmed.contains("r\"") || trimmed.contains("r#\"") {
+        return true;
+    }
+    false
 }
 
 /// Display path relative to root
