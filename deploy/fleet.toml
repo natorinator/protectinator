@@ -32,16 +32,27 @@ host = "merope"
 user = "erewhon"
 sudo = true
 
+[[hosts]]
+name = "delphi"
+host = "delphi"
+user = "erewhon"
+sudo = true
+
 # Container scanning
 [containers]
 scan_all = true
 
-# Source repositories to scan
-# Add your active project paths here (on the scanning host)
+# Source repositories to scan (paths on the scanning host)
 
-# [[repos]]
-# path = "~/Projects/project-name"
-# ecosystem = "rust"  # optional: rust, python, node, etc.
+[[repos]]
+path = "~/Projects/erewhon/protectinator"
+ecosystem = "rust"
+
+[[repos]]
+path = "~/Projects/erewhon/hub"
+
+[[repos]]
+path = "~/Projects/erewhon/llm-router"
 
 # Webhook notifications (optional)
 # [notifications.webhook]

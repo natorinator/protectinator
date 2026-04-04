@@ -1,0 +1,167 @@
+{
+  "Services": {
+    "svc:alertmanager": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "alertmanager.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:9093"
+            }
+          }
+        }
+      }
+    },
+    "svc:grafana": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "grafana.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:3000"
+            }
+          }
+        }
+      }
+    },
+    "svc:hub": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "hub.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:51730"
+            }
+          }
+        }
+      }
+    },
+    "svc:llm": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "llm.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://localhost:4010"
+            }
+          }
+        }
+      }
+    },
+    "svc:llm-dashboard": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "llm-dashboard.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://localhost:4011"
+            }
+          }
+        }
+      }
+    },
+    "svc:ntfy": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "ntfy.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:8070"
+            }
+          }
+        }
+      }
+    },
+    "svc:open-webui": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "open-webui.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:8080"
+            }
+          }
+        }
+      }
+    },
+    "svc:prometheus": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "prometheus.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:9090"
+            }
+          }
+        }
+      }
+    },
+    "svc:protectinator": {
+      "TCP": {
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "protectinator.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:8090"
+            }
+          }
+        }
+      }
+    },
+    "svc:soft-serve": {
+      "TCP": {
+        "23231": {
+          "TCPForward": "127.0.0.1:23231"
+        },
+        "443": {
+          "HTTP": true
+        }
+      },
+      "Web": {
+        "soft-serve.peacock-bramble.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:23232"
+            }
+          }
+        }
+      }
+    }
+  }
+}

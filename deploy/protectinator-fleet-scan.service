@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=erewhon
+AmbientCapabilities=CAP_DAC_READ_SEARCH
 ExecStart=/usr/local/bin/protectinator fleet scan
 # Allow up to 30 minutes for a full fleet scan
 TimeoutStartSec=1800

@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "endpoints": {
+    "tcp:443": "http://localhost:8090"
+  }
+}

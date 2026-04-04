@@ -144,8 +144,8 @@ impl DebianTracker {
     /// Create a new Debian tracker client
     pub fn new() -> Self {
         let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(10))
-            .timeout_read(std::time::Duration::from_secs(30))
+            .timeout_connect(std::time::Duration::from_secs(15))
+            .timeout_read(std::time::Duration::from_secs(120))
             .build();
         Self { agent }
     }
@@ -161,13 +161,21 @@ impl DebianTracker {
         let response = self
             .agent
             .get(TRACKER_URL)
-            .set("Accept-Encoding", "gzip")
             .call()
-            .map_err(|e| AdvisoryError::Http(format!("Failed to fetch tracker data: {}", e)))?;
+            .map_err(|e| {
+                AdvisoryError::Http(format!(
+                    "Failed to fetch Debian tracker data from {}: {}",
+                    TRACKER_URL, e
+                ))
+            })?;
 
-        let data: HashMap<String, HashMap<String, RawDebianCve>> = response
-            .into_json()
-            .map_err(|e| AdvisoryError::Parse(format!("Failed to parse tracker JSON: {}", e)))?;
+        let data: HashMap<String, HashMap<String, RawDebianCve>> =
+            response.into_json().map_err(|e| {
+                AdvisoryError::Parse(format!(
+                    "Failed to parse Debian tracker JSON (~69MB): {}",
+                    e
+                ))
+            })?;
 
         debug!("Fetched {} source packages from tracker", data.len());
         Ok(data)

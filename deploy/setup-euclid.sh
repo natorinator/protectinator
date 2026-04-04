@@ -74,9 +74,10 @@ ssh "${REMOTE_USER}@${REMOTE_HOST}" "
 "
 
 echo ""
-echo "--- Setting up Tailscale serve ---"
+echo "--- Setting up Tailscale service ---"
+scp "$SCRIPT_DIR/tailscale-serve.json" "${REMOTE_USER}@${REMOTE_HOST}:/tmp/protectinator-svc.json"
 ssh "${REMOTE_USER}@${REMOTE_HOST}" "
-    sudo tailscale serve --bg 8080
+    sudo tailscale serve set-config --service=svc:protectinator /tmp/protectinator-svc.json
 "
 
 echo ""
@@ -86,7 +87,7 @@ ssh "${REMOTE_USER}@${REMOTE_HOST}" "protectinator fleet scan" || true
 echo ""
 echo "=== Deployment complete ==="
 echo ""
-echo "Dashboard: https://${REMOTE_HOST}.<your-tailnet>.ts.net"
+echo "Dashboard: https://protectinator.<your-tailnet>.ts.net"
 echo "Fleet scan timer: systemctl status protectinator-fleet-scan.timer"
 echo "Web service: systemctl status protectinator-web.service"
 echo ""
