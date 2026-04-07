@@ -14,24 +14,28 @@ host = "euclid"
 user = "erewhon"
 sudo = true
 scan_containers = true
+tags = ["internal", "services"]
 
 [[hosts]]
 name = "archimedes"
 host = "archimedes"
 user = "erewhon"
 sudo = true
+tags = ["internal"]
 
 [[hosts]]
 name = "hypatia"
 host = "hypatia"
 user = "erewhon"
 sudo = true
+tags = ["internal"]
 
 [[hosts]]
 name = "merope"
 host = "merope"
 user = "erewhon"
 sudo = true
+tags = ["internal"]
 
 [[hosts]]
 name = "delphi"
@@ -39,6 +43,7 @@ host = "delphi"
 user = "erewhon"
 sudo = true
 scan_containers = true
+tags = ["internal", "dev"]
 
 # Container scanning
 [containers]

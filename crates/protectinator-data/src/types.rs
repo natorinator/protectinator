@@ -64,6 +64,8 @@ pub struct HostSummary {
     pub latest_medium: usize,
     pub latest_low: usize,
     pub latest_info: usize,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Scan diff between two scans

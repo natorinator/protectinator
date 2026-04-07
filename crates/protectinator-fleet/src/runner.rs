@@ -158,10 +158,11 @@ impl FleetRunner {
                             // Store results (after suppression)
                             if let Ok(guard) = db.lock() {
                                 if let Some(ref store) = *guard {
-                                    if let Err(e) = store.store_scan(
+                                    if let Err(e) = store.store_scan_with_tags(
                                         &scan_key,
                                         &results.scan_results.findings,
                                         0,
+                                        &entry.tags,
                                     ) {
                                         warn!("Failed to store scan for {}: {}", entry.name, e);
                                     }
@@ -523,7 +524,7 @@ fn scan_remote_containers(
         if let Ok(guard) = db.lock() {
             if let Some(ref store) = *guard {
                 let store_key = format!("container:{}@{}", container_name, entry.name);
-                if let Err(e) = store.store_scan(&store_key, &container_findings, 0) {
+                if let Err(e) = store.store_scan_with_tags(&store_key, &container_findings, 0, &entry.tags) {
                     warn!(
                         "Failed to store container scan for {}: {}",
                         container_name, e

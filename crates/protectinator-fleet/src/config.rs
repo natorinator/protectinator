@@ -75,6 +75,9 @@ pub struct HostEntry {
     /// Also scan containers on this host (requires protectinator installed remotely)
     #[serde(default)]
     pub scan_containers: bool,
+    /// Tags for filtering and prioritization (e.g., "external", "internal", "dev")
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 fn default_user() -> String {

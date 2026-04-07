@@ -116,6 +116,14 @@
                         <option :value="t" x-text="getHostTypeLabel(t)"></option>
                     </template>
                 </select>
+                <select x-show="hostTags.length > 0"
+                        class="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-emerald-500"
+                        x-model="hostTagFilter">
+                    <option value="">All tags</option>
+                    <template x-for="t in hostTags" :key="t">
+                        <option :value="t" x-text="t"></option>
+                    </template>
+                </select>
                 <span class="text-xs text-gray-500 ml-auto" x-text="filteredHosts.length + ' of ' + hosts.length + ' targets'"></span>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -123,7 +131,14 @@
                     <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 cursor-pointer hover:border-gray-600 transition"
                          @click="viewHost(host.name)">
                         <div class="flex justify-between items-start mb-2">
-                            <h4 class="font-semibold text-white" x-text="getHostDisplayName(host.name)"></h4>
+                            <div class="flex items-center gap-2">
+                                <h4 class="font-semibold text-white" x-text="getHostDisplayName(host.name)"></h4>
+                                <template x-for="tag in (host.tags || [])" :key="tag">
+                                    <span class="text-xs px-1.5 py-0.5 rounded-full"
+                                          :class="tag === 'external' ? 'bg-red-900 text-red-300' : 'bg-gray-800 text-gray-400'"
+                                          x-text="tag"></span>
+                                </template>
+                            </div>
                             <span class="text-xs text-gray-500" x-text="formatDate(host.last_scanned)"></span>
                         </div>
                         <div class="flex gap-2 text-xs">

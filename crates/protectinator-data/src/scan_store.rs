@@ -22,10 +22,13 @@ impl ScanStore {
         // Migrate schema: add new columns if they don't exist
         conn.execute_batch(
             "ALTER TABLE findings ADD COLUMN actionability TEXT;",
-        ).ok(); // Ignore error if column already exists
+        ).ok();
         conn.execute_batch(
             "ALTER TABLE findings ADD COLUMN debian_urgency TEXT;",
-        ).ok(); // Ignore error if column already exists
+        ).ok();
+        conn.execute_batch(
+            "ALTER TABLE scans ADD COLUMN tags TEXT;",
+        ).ok();
         Ok(Self { conn })
     }
 
@@ -47,7 +50,8 @@ impl ScanStore {
                 high INTEGER NOT NULL DEFAULT 0,
                 medium INTEGER NOT NULL DEFAULT 0,
                 low INTEGER NOT NULL DEFAULT 0,
-                info INTEGER NOT NULL DEFAULT 0
+                info INTEGER NOT NULL DEFAULT 0,
+                tags TEXT
             );
             CREATE TABLE IF NOT EXISTS findings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -269,11 +273,11 @@ impl ScanStore {
 
         let mut result = Vec::new();
         for (name, last_scanned, scan_count) in hosts {
-            // Get severity counts from the most recent scan
+            // Get severity counts and tags from the most recent scan
             let latest = self
                 .conn
                 .query_row(
-                    "SELECT critical, high, medium, low, info
+                    "SELECT critical, high, medium, low, info, tags
                      FROM scans WHERE repo_path = ?1
                      ORDER BY scanned_at DESC LIMIT 1",
                     params![name],
@@ -284,10 +288,15 @@ impl ScanStore {
                             row.get::<_, usize>(2)?,
                             row.get::<_, usize>(3)?,
                             row.get::<_, usize>(4)?,
+                            row.get::<_, Option<String>>(5)?,
                         ))
                     },
                 )
-                .unwrap_or((0, 0, 0, 0, 0));
+                .unwrap_or((0, 0, 0, 0, 0, None));
+
+            let tags = latest.5
+                .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                .unwrap_or_default();
 
             result.push(HostSummary {
                 name,
@@ -298,6 +307,7 @@ impl ScanStore {
                 latest_medium: latest.2,
                 latest_low: latest.3,
                 latest_info: latest.4,
+                tags,
             });
         }
 
@@ -358,6 +368,17 @@ impl ScanStore {
         findings: &[Finding],
         packages_scanned: usize,
     ) -> Result<i64, String> {
+        self.store_scan_with_tags(scan_key, findings, packages_scanned, &[])
+    }
+
+    /// Store scan results with optional tags
+    pub fn store_scan_with_tags(
+        &self,
+        scan_key: &str,
+        findings: &[Finding],
+        packages_scanned: usize,
+        tags: &[String],
+    ) -> Result<i64, String> {
         let now = chrono::Utc::now().to_rfc3339();
 
         let mut critical = 0usize;
@@ -376,10 +397,16 @@ impl ScanStore {
             }
         }
 
+        let tags_str = if tags.is_empty() {
+            None
+        } else {
+            Some(tags.join(","))
+        };
+
         self.conn
             .execute(
-                "INSERT INTO scans (repo_path, scanned_at, packages_scanned, total_findings, critical, high, medium, low, info)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO scans (repo_path, scanned_at, packages_scanned, total_findings, critical, high, medium, low, info, tags)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     scan_key,
                     now,
@@ -389,7 +416,8 @@ impl ScanStore {
                     high,
                     medium,
                     low,
-                    info_count
+                    info_count,
+                    tags_str
                 ],
             )
             .map_err(|e| format!("Failed to store scan: {}", e))?;

@@ -16,6 +16,7 @@ function app() {
         hostSearch: '',
         hostFilter: '',
         hostTypeFilter: '',
+        hostTagFilter: '',
         findingSearch: '',
         filterSeverity: '',
         filterCategory: '',
@@ -344,6 +345,16 @@ function app() {
             return [...types].sort();
         },
 
+        get hostTags() {
+            const tags = new Set();
+            for (const h of this.hosts) {
+                for (const t of (h.tags || [])) {
+                    tags.add(t);
+                }
+            }
+            return [...tags].sort();
+        },
+
         get filteredHosts() {
             let results = this.hosts;
 
@@ -356,6 +367,11 @@ function app() {
             // Type filter
             if (this.hostTypeFilter) {
                 results = results.filter(h => this.getHostType(h.name) === this.hostTypeFilter);
+            }
+
+            // Tag filter
+            if (this.hostTagFilter) {
+                results = results.filter(h => (h.tags || []).includes(this.hostTagFilter));
             }
 
             // Severity filter
