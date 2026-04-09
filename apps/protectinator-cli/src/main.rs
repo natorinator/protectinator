@@ -266,6 +266,10 @@ enum Commands {
     #[command(subcommand, name = "penalty-box")]
     PenaltyBox(commands::penalty_box::PenaltyBoxCommands),
 
+    /// Defense audit — check firewall, brute-force protection, and security posture
+    #[command(subcommand)]
+    Defense(commands::defense::DefenseCommands),
+
     /// Fleet management — scan multiple hosts, containers, and repos
     ///
     /// Scan your entire fleet from a single TOML config file.
@@ -337,6 +341,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Secrets(cmd) => commands::secrets::run(cmd, format_str),
         #[cfg(feature = "remote")]
         Commands::Remote(cmd) => commands::remote::run(cmd, format_str),
+        Commands::Defense(cmd) => commands::defense::run(cmd, format_str),
         Commands::PenaltyBox(cmd) => commands::penalty_box::run(cmd, format_str),
         Commands::Fleet(cmd) => commands::fleet::run(cmd, format_str),
         Commands::Report(args) => commands::report::run(args),

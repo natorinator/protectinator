@@ -78,6 +78,10 @@ pub struct HostEntry {
     /// Tags for filtering and prioritization (e.g., "external", "internal", "dev")
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Allowed network services (e.g., ["ssh:22", "http:8090"])
+    /// Services not listed that are listening get flagged
+    #[serde(default)]
+    pub allowed_services: Vec<String>,
 }
 
 fn default_user() -> String {

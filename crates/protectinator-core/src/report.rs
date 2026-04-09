@@ -113,6 +113,11 @@ pub enum FindingSource {
         check_category: String,
         secret_type: Option<String>,
     },
+    /// Finding from defensive posture audit
+    Defense {
+        check_category: String,
+        host: Option<String>,
+    },
 }
 
 /// Type of file change detected

@@ -53,6 +53,7 @@ protectinator-data = { workspace = true }
 protectinator-report = { workspace = true }
 protectinator-fleet = { workspace = true }
 protectinator-penaltybox = { workspace = true }
+protectinator-defense = { workspace = true }
 
 clap = { workspace = true }
 serde = { workspace = true }

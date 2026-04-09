@@ -155,6 +155,16 @@ impl FleetRunner {
                                 }
                             }
 
+                            // Run defense audit
+                            let host_ctx = protectinator_defense::HostContext {
+                                name: entry.name.clone(),
+                                tags: entry.tags.clone(),
+                                allowed_services: entry.allowed_services.clone(),
+                            };
+                            let host = FleetConfig::host_to_remote(entry);
+                            let defense_result = protectinator_defense::DefenseAudit::audit_remote(&host, &host_ctx);
+                            results.scan_results.findings.extend(defense_result.findings);
+
                             // Store results (after suppression)
                             if let Ok(guard) = db.lock() {
                                 if let Some(ref store) = *guard {

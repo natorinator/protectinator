@@ -1512,6 +1512,7 @@ dependencies = [
  "protectinator-container",
  "protectinator-core",
  "protectinator-data",
+ "protectinator-defense",
  "protectinator-engine",
  "protectinator-fim",
  "protectinator-fleet",
@@ -1607,6 +1608,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "protectinator-defense"
+version = "2026.3.28"
+dependencies = [
+ "protectinator-core",
+ "protectinator-remote",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "protectinator-engine"
 version = "2026.3.28"
 dependencies = [
@@ -1644,6 +1658,7 @@ dependencies = [
  "protectinator-container",
  "protectinator-core",
  "protectinator-data",
+ "protectinator-defense",
  "protectinator-remote",
  "protectinator-secrets",
  "protectinator-supply-chain",
