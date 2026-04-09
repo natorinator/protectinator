@@ -29,6 +29,19 @@ impl ScanStore {
         conn.execute_batch(
             "ALTER TABLE scans ADD COLUMN tags TEXT;",
         ).ok();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS remediation_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                host TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                actions_json TEXT NOT NULL,
+                source_findings TEXT NOT NULL,
+                approved_at TEXT,
+                executed_at TEXT,
+                result_json TEXT
+            );",
+        ).ok();
         Ok(Self { conn })
     }
 
@@ -68,7 +81,18 @@ impl ScanStore {
             );
             CREATE INDEX IF NOT EXISTS idx_scans_repo ON scans(repo_path, scanned_at DESC);
             CREATE INDEX IF NOT EXISTS idx_findings_scan ON findings(scan_id);
-            CREATE INDEX IF NOT EXISTS idx_findings_id ON findings(finding_id);",
+            CREATE INDEX IF NOT EXISTS idx_findings_id ON findings(finding_id);
+            CREATE TABLE IF NOT EXISTS remediation_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                host TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                actions_json TEXT NOT NULL,
+                source_findings TEXT NOT NULL,
+                approved_at TEXT,
+                executed_at TEXT,
+                result_json TEXT
+            );",
         )
         .map_err(|e| format!("Failed to initialize schema: {}", e))?;
         Ok(Self { conn })
@@ -465,6 +489,119 @@ impl ScanStore {
 
         Ok(scan_id)
     }
+
+    /// Store a remediation plan and return its ID
+    pub fn store_plan(
+        &self,
+        host: &str,
+        status: &str,
+        actions_json: &str,
+        source_findings: &str,
+    ) -> Result<i64, String> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn
+            .execute(
+                "INSERT INTO remediation_plans (host, created_at, status, actions_json, source_findings)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![host, now, status, actions_json, source_findings],
+            )
+            .map_err(|e| format!("Failed to store plan: {}", e))?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// List remediation plans with optional filters
+    pub fn list_plans(
+        &self,
+        host: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<Vec<StoredPlan>, String> {
+        let mut sql = String::from(
+            "SELECT id, host, created_at, status, actions_json, source_findings, approved_at, executed_at, result_json
+             FROM remediation_plans",
+        );
+
+        let mut conditions = Vec::new();
+        let mut param_idx = 1;
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(h) = host {
+            conditions.push(format!("host = ?{}", param_idx));
+            params_vec.push(Box::new(h.to_string()));
+            param_idx += 1;
+        }
+        if let Some(s) = status {
+            conditions.push(format!("status = ?{}", param_idx));
+            params_vec.push(Box::new(s.to_string()));
+        }
+
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|e| format!("Query failed: {}", e))?;
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let plans = stmt
+            .query_map(params_refs.as_slice(), |row| row_to_plan(row))
+            .map_err(|e| format!("Query failed: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(plans)
+    }
+
+    /// Get a single plan by ID
+    pub fn get_plan(&self, id: i64) -> Result<Option<StoredPlan>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, host, created_at, status, actions_json, source_findings, approved_at, executed_at, result_json
+                 FROM remediation_plans WHERE id = ?1",
+            )
+            .map_err(|e| format!("Query failed: {}", e))?;
+
+        let result = stmt.query_row(params![id], |row| row_to_plan(row)).ok();
+        Ok(result)
+    }
+
+    /// Update plan status, optionally setting an extra timestamp field
+    pub fn update_plan_status(
+        &self,
+        id: i64,
+        status: &str,
+        extra_field: Option<(&str, &str)>,
+    ) -> Result<(), String> {
+        if let Some((field, value)) = extra_field {
+            // Validate field name to prevent SQL injection
+            let allowed = ["approved_at", "executed_at", "result_json"];
+            if !allowed.contains(&field) {
+                return Err(format!("Invalid extra field: {}", field));
+            }
+            let sql = format!(
+                "UPDATE remediation_plans SET status = ?1, {} = ?2 WHERE id = ?3",
+                field
+            );
+            self.conn
+                .execute(&sql, params![status, value, id])
+                .map_err(|e| format!("Failed to update plan: {}", e))?;
+        } else {
+            self.conn
+                .execute(
+                    "UPDATE remediation_plans SET status = ?1 WHERE id = ?2",
+                    params![status, id],
+                )
+                .map_err(|e| format!("Failed to update plan: {}", e))?;
+        }
+        Ok(())
+    }
 }
 
 fn row_to_scan(row: &rusqlite::Row) -> rusqlite::Result<StoredScan> {
@@ -503,6 +640,20 @@ fn extract_check_category(source: &FindingSource) -> Option<String> {
         FindingSource::Secrets { check_category, .. } => Some(check_category.clone()),
         FindingSource::Defense { check_category, .. } => Some(check_category.clone()),
     }
+}
+
+fn row_to_plan(row: &rusqlite::Row) -> rusqlite::Result<StoredPlan> {
+    Ok(StoredPlan {
+        id: row.get(0)?,
+        host: row.get(1)?,
+        created_at: row.get(2)?,
+        status: row.get(3)?,
+        actions_json: row.get(4)?,
+        source_findings: row.get(5)?,
+        approved_at: row.get(6)?,
+        executed_at: row.get(7)?,
+        result_json: row.get(8)?,
+    })
 }
 
 fn row_to_finding(row: &rusqlite::Row) -> rusqlite::Result<StoredFinding> {

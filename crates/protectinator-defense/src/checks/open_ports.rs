@@ -6,13 +6,56 @@
 use crate::audit::HostContext;
 use protectinator_core::{Finding, FindingSource, Severity};
 
-/// Parse an allowed_services entry like "ssh:22" or "http:8090" into port number
-fn parse_allowed_port(service: &str) -> Option<u16> {
-    // Format: "protocol:port" or just "ssh" (implies 22)
-    if service == "ssh" {
-        return Some(22);
+/// A parsed allowed service entry
+#[derive(Debug, Clone)]
+pub struct AllowedService {
+    pub name: String,
+    pub port: u16,
+    pub protocol: String, // "tcp" (default)
+}
+
+/// Well-known service shorthands
+fn expand_shorthand(service: &str) -> Option<AllowedService> {
+    match service.to_lowercase().as_str() {
+        "ssh" => Some(AllowedService { name: "ssh".into(), port: 22, protocol: "tcp".into() }),
+        "http" => Some(AllowedService { name: "http".into(), port: 80, protocol: "tcp".into() }),
+        "https" => Some(AllowedService { name: "https".into(), port: 443, protocol: "tcp".into() }),
+        "dns" => Some(AllowedService { name: "dns".into(), port: 53, protocol: "tcp".into() }),
+        _ => None,
     }
-    service.split(':').last()?.parse().ok()
+}
+
+/// Parse an allowed_services entry
+/// Formats: "ssh", "ssh:22", "http:8090", "tcp:3000", "9090"
+pub fn parse_allowed_service(entry: &str) -> Option<AllowedService> {
+    let entry = entry.trim();
+
+    // Try shorthand first
+    if let Some(svc) = expand_shorthand(entry) {
+        return Some(svc);
+    }
+
+    // Try name:port format
+    if let Some((name, port_str)) = entry.split_once(':') {
+        if let Ok(port) = port_str.parse::<u16>() {
+            return Some(AllowedService {
+                name: name.to_string(),
+                port,
+                protocol: "tcp".to_string(),
+            });
+        }
+    }
+
+    // Try bare port number
+    if let Ok(port) = entry.parse::<u16>() {
+        return Some(AllowedService {
+            name: format!("port-{}", port),
+            port,
+            protocol: "tcp".to_string(),
+        });
+    }
+
+    None
 }
 
 /// Parse ss -tlnp output into (port, process_name) pairs
@@ -62,7 +105,7 @@ pub fn check_open_ports(run: &dyn Fn(&str) -> Option<String>, ctx: &HostContext)
 
     let listening = parse_ss_output(&output);
     let allowed_ports: Vec<u16> = ctx.allowed_services.iter()
-        .filter_map(|s| parse_allowed_port(s))
+        .filter_map(|s| parse_allowed_service(s).map(|svc| svc.port))
         .collect();
 
     for (port, process) in &listening {
@@ -96,11 +139,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_allowed_port() {
-        assert_eq!(parse_allowed_port("ssh:22"), Some(22));
-        assert_eq!(parse_allowed_port("http:8090"), Some(8090));
-        assert_eq!(parse_allowed_port("ssh"), Some(22));
-        assert_eq!(parse_allowed_port("invalid"), None);
+    fn test_parse_allowed_service_shorthands() {
+        let svc = parse_allowed_service("ssh").unwrap();
+        assert_eq!(svc.port, 22);
+        assert_eq!(svc.name, "ssh");
+        assert_eq!(svc.protocol, "tcp");
+
+        let svc = parse_allowed_service("http").unwrap();
+        assert_eq!(svc.port, 80);
+
+        let svc = parse_allowed_service("https").unwrap();
+        assert_eq!(svc.port, 443);
+
+        let svc = parse_allowed_service("dns").unwrap();
+        assert_eq!(svc.port, 53);
+    }
+
+    #[test]
+    fn test_parse_allowed_service_name_port() {
+        let svc = parse_allowed_service("ssh:22").unwrap();
+        assert_eq!(svc.port, 22);
+        assert_eq!(svc.name, "ssh");
+
+        let svc = parse_allowed_service("http:8090").unwrap();
+        assert_eq!(svc.port, 8090);
+        assert_eq!(svc.name, "http");
+
+        let svc = parse_allowed_service("tcp:3000").unwrap();
+        assert_eq!(svc.port, 3000);
+        assert_eq!(svc.name, "tcp");
+    }
+
+    #[test]
+    fn test_parse_allowed_service_bare_port() {
+        let svc = parse_allowed_service("9090").unwrap();
+        assert_eq!(svc.port, 9090);
+        assert_eq!(svc.name, "port-9090");
+    }
+
+    #[test]
+    fn test_parse_allowed_service_invalid() {
+        assert!(parse_allowed_service("invalid").is_none());
+        assert!(parse_allowed_service("").is_none());
+        assert!(parse_allowed_service("foo:bar").is_none());
+    }
+
+    #[test]
+    fn test_parse_allowed_service_whitespace() {
+        let svc = parse_allowed_service("  ssh  ").unwrap();
+        assert_eq!(svc.port, 22);
     }
 
     #[test]

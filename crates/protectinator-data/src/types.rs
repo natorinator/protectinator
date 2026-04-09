@@ -95,6 +95,20 @@ pub struct SbomPackage {
     pub sbom_path: String,
 }
 
+/// Stored remediation plan
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredPlan {
+    pub id: i64,
+    pub host: String,
+    pub created_at: String,
+    pub status: String,
+    pub actions_json: String,
+    pub source_findings: String,
+    pub approved_at: Option<String>,
+    pub executed_at: Option<String>,
+    pub result_json: Option<String>,
+}
+
 /// Overall data store status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataStoreStatus {
