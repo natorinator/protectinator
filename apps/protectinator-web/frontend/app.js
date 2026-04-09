@@ -24,6 +24,7 @@ function app() {
         sortAsc: true,
         filterActionability: '',
         penaltyBoxProfiles: [],
+        remediationPlans: [],
         sbomSearch: '',
         sbomSearchResults: [],
         trendChart: null,
@@ -44,6 +45,7 @@ function app() {
                 this.loadHosts(),
                 this.loadFleetSummary(),
                 this.loadPenaltyBox(),
+                this.loadRemediationPlans(),
                 this.loadUser(),
             ]);
 
@@ -128,6 +130,41 @@ function app() {
             } catch (e) {
                 this.penaltyBoxProfiles = [];
             }
+        },
+
+        async loadRemediationPlans() {
+            try {
+                const res = await fetch('/api/defense/plans');
+                if (res.ok) {
+                    this.remediationPlans = await res.json();
+                }
+            } catch (e) {
+                this.remediationPlans = [];
+            }
+        },
+
+        async approvePlan(id) {
+            try {
+                const res = await fetch(`/api/defense/plans/${id}/approve`, { method: 'POST' });
+                if (res.ok) {
+                    await this.loadRemediationPlans();
+                } else {
+                    const err = await res.json();
+                    alert(err.error || 'Failed to approve plan');
+                }
+            } catch (e) {
+                alert('Failed to approve plan');
+            }
+        },
+
+        planStatusColor(status) {
+            const colors = { pending: 'text-yellow-400', approved: 'text-green-400', executing: 'text-cyan-400', done: 'text-green-500', failed: 'text-red-400' };
+            return colors[status] || 'text-gray-400';
+        },
+
+        planStatusBg(status) {
+            const colors = { pending: 'bg-yellow-900/50', approved: 'bg-green-900/50', executing: 'bg-cyan-900/50', done: 'bg-green-900/30', failed: 'bg-red-900/50' };
+            return colors[status] || 'bg-gray-800';
         },
 
         async loadHosts() {

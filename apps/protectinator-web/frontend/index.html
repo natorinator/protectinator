@@ -153,6 +153,46 @@
                 </template>
             </div>
 
+            <!-- Remediation Plans -->
+            <div x-show="remediationPlans.length > 0" class="mt-8">
+                <h3 class="text-lg font-semibold mb-3">Remediation Plans</h3>
+                <div class="space-y-3">
+                    <template x-for="plan in remediationPlans" :key="plan.id">
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-4"
+                             :class="planStatusBg(plan.status)">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-white font-semibold" x-text="'#' + plan.id"></span>
+                                    <span class="text-white" x-text="plan.host"></span>
+                                    <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                          :class="planStatusBg(plan.status) + ' ' + planStatusColor(plan.status)"
+                                          x-text="plan.status"></span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-gray-500" x-text="formatDate(plan.created_at)"></span>
+                                    <button x-show="plan.status === 'pending'"
+                                            @click="approvePlan(plan.id)"
+                                            class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded transition">
+                                        Approve
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="text-xs text-gray-400 space-y-1">
+                                <template x-for="(action, i) in JSON.parse(plan.actions_json || '[]')" :key="i">
+                                    <div class="flex gap-2">
+                                        <span class="text-gray-600" x-text="(i+1) + '.'"></span>
+                                        <span x-text="action.description || action.type"></span>
+                                    </div>
+                                </template>
+                            </div>
+                            <div x-show="plan.executed_at" class="mt-2 text-xs text-gray-500">
+                                Executed: <span x-text="formatDate(plan.executed_at)"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
             <!-- Penalty Box -->
             <div x-show="activePenaltyBoxProfiles.length > 0" class="mt-8">
                 <h3 class="text-lg font-semibold mb-3">Penalty Box</h3>
