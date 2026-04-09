@@ -2,7 +2,8 @@
 
 use clap::{Args, Subcommand};
 use protectinator_data::DataStore;
-use protectinator_defense::{generate_plan, DefenseAudit, HostContext};
+use protectinator_defense::{execute_plan, generate_plan, DefenseAudit, HostContext, RemediationAction, RemediationPlan, PlanStatus};
+use protectinator_fleet::config::HostEntry;
 use protectinator_fleet::FleetConfig;
 use protectinator_remote::types::RemoteHost;
 use std::path::PathBuf;
@@ -20,6 +21,12 @@ pub enum DefenseCommands {
 
     /// Show remediation plan status
     Status(DefenseStatusArgs),
+
+    /// Execute an approved remediation plan
+    ///
+    /// Runs the plan's actions via SSH on the target host.
+    /// Dry-run by default — use --execute to actually apply changes.
+    Remediate(DefenseRemediateArgs),
 }
 
 #[derive(Args)]
@@ -59,12 +66,23 @@ pub struct DefenseStatusArgs {
     host: Option<String>,
 }
 
+#[derive(Args)]
+pub struct DefenseRemediateArgs {
+    /// Plan ID to execute
+    plan_id: i64,
+
+    /// Actually execute the plan (default is dry-run)
+    #[arg(long)]
+    execute: bool,
+}
+
 pub fn run(cmd: DefenseCommands, format: &str) -> anyhow::Result<()> {
     match cmd {
         DefenseCommands::Audit(args) => run_audit(args, format),
         DefenseCommands::Plan(args) => run_plan(args, format),
         DefenseCommands::Approve(args) => run_approve(args, format),
         DefenseCommands::Status(args) => run_status(args, format),
+        DefenseCommands::Remediate(args) => run_remediate(args, format),
     }
 }
 
@@ -315,6 +333,183 @@ fn run_status(args: DefenseStatusArgs, format: &str) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn run_remediate(args: DefenseRemediateArgs, format: &str) -> anyhow::Result<()> {
+    let store = DataStore::open_default().map_err(|e| anyhow::anyhow!(e))?;
+
+    // Load plan from DB
+    let stored = store
+        .scans
+        .get_plan(args.plan_id)
+        .map_err(|e| anyhow::anyhow!(e))?
+        .ok_or_else(|| anyhow::anyhow!("Plan #{} not found", args.plan_id))?;
+
+    // Verify status is approved
+    if stored.status != "approved" {
+        return Err(anyhow::anyhow!(
+            "Plan #{} is in '{}' status — only 'approved' plans can be executed.\n\
+             Use 'protectinator defense approve {}' to approve a pending plan.",
+            args.plan_id,
+            stored.status,
+            args.plan_id,
+        ));
+    }
+
+    // Parse actions from stored JSON
+    let actions: Vec<RemediationAction> = serde_json::from_str(&stored.actions_json)
+        .map_err(|e| anyhow::anyhow!("Failed to parse plan actions: {}", e))?;
+
+    // Look up host in fleet.toml for SSH details
+    let host_entry = find_host_entry(&stored.host);
+    let remote_host = if let Some(entry) = &host_entry {
+        FleetConfig::host_to_remote(entry)
+    } else {
+        // Fall back to basic host config
+        RemoteHost::new(&stored.host)
+            .with_user("erewhon")
+            .with_sudo(true)
+    };
+
+    // Build RemediationPlan from stored data
+    let plan = RemediationPlan {
+        id: Some(args.plan_id),
+        host: stored.host.clone(),
+        created_at: stored.created_at.clone(),
+        status: PlanStatus::Approved,
+        actions,
+        source_findings: stored
+            .source_findings
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    };
+
+    let dry_run = !args.execute;
+    let mode_label = if dry_run { "dry-run" } else { "EXECUTING" };
+
+    // If actually executing, mark plan as executing
+    if !dry_run {
+        store
+            .scans
+            .update_plan_status(args.plan_id, "executing", None)
+            .map_err(|e| anyhow::anyhow!(e))?;
+    }
+
+    // Execute the plan
+    let result = execute_plan(&plan, args.plan_id, &remote_host, dry_run);
+
+    if format == "json" {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        if !dry_run {
+            let result_json = serde_json::to_string(&result)?;
+            let status = if result.success { "done" } else { "failed" };
+            store
+                .scans
+                .update_plan_status(args.plan_id, status, Some(("result_json", &result_json)))
+                .map_err(|e| anyhow::anyhow!(e))?;
+            if result.success {
+                let now = chrono::Utc::now().to_rfc3339();
+                store
+                    .scans
+                    .update_plan_status(args.plan_id, status, Some(("executed_at", &now)))
+                    .map_err(|e| anyhow::anyhow!(e))?;
+            }
+        }
+        return Ok(());
+    }
+
+    // Display results with colored output
+    println!(
+        "\n\x1b[1mRemediation Plan #{} — {} ({})\x1b[0m\n",
+        args.plan_id, stored.host, mode_label
+    );
+
+    for ar in &result.action_results {
+        let step = ar.action_index + 1;
+        let total = result.actions_total;
+        println!("  [{}/{}] {}", step, total, ar.description);
+        println!("        \x1b[90m$ {}\x1b[0m", ar.command);
+
+        if ar.success {
+            if dry_run {
+                println!("        \x1b[92m✓\x1b[0m (dry-run)");
+            } else {
+                let secs = ar.duration_ms as f64 / 1000.0;
+                println!("        \x1b[92m✓\x1b[0m ({:.1}s)", secs);
+            }
+        } else {
+            let err_msg = ar.error.as_deref().unwrap_or("unknown error");
+            println!("        \x1b[91m✗\x1b[0m {}", err_msg);
+        }
+        println!();
+    }
+
+    if result.success {
+        if dry_run {
+            println!(
+                "All {} actions completed successfully (dry-run).",
+                result.actions_total
+            );
+            println!(
+                "To apply: \x1b[1mprotectinator defense remediate {} --execute\x1b[0m",
+                args.plan_id
+            );
+        } else {
+            let secs = result.duration_ms as f64 / 1000.0;
+            println!(
+                "\x1b[92m✓\x1b[0m All {} actions completed successfully ({:.1}s)",
+                result.actions_total, secs
+            );
+
+            // Build audit suggestion with user/sudo from fleet config
+            let mut audit_cmd = format!("protectinator defense audit {}", stored.host);
+            if let Some(entry) = &host_entry {
+                if entry.user != "root" {
+                    audit_cmd.push_str(&format!(" --user {}", entry.user));
+                }
+                if entry.sudo {
+                    audit_cmd.push_str(" --sudo");
+                }
+            }
+            println!("Run '{}' to verify fixes.", audit_cmd);
+        }
+    } else {
+        println!(
+            "\x1b[91m✗\x1b[0m Execution failed after {}/{} actions.",
+            result.actions_completed, result.actions_total
+        );
+    }
+
+    // Persist results if not dry-run
+    if !dry_run {
+        let result_json = serde_json::to_string(&result)?;
+        let status = if result.success { "done" } else { "failed" };
+        store
+            .scans
+            .update_plan_status(args.plan_id, status, Some(("result_json", &result_json)))
+            .map_err(|e| anyhow::anyhow!(e))?;
+        if result.success {
+            let now = chrono::Utc::now().to_rfc3339();
+            store
+                .scans
+                .update_plan_status(args.plan_id, status, Some(("executed_at", &now)))
+                .map_err(|e| anyhow::anyhow!(e))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Find a host entry in fleet.toml by name or hostname
+fn find_host_entry(host: &str) -> Option<HostEntry> {
+    let config_path = FleetConfig::default_path().ok()?;
+    let config = FleetConfig::load(&config_path).ok()?;
+    config
+        .hosts
+        .into_iter()
+        .find(|h| h.name == host || h.host == host)
 }
 
 /// Load allowed_services for a host from fleet.toml, if available

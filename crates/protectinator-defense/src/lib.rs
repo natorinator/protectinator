@@ -8,8 +8,10 @@
 
 pub mod checks;
 pub mod audit;
+pub mod executor;
 pub mod remediate;
 
 pub use audit::{DefenseAudit, DefenseAuditResult, HostContext};
 pub use checks::open_ports::{AllowedService, parse_allowed_service};
+pub use executor::{execute_plan, ActionResult, ExecutionResult};
 pub use remediate::{generate_plan, PlanStatus, RemediationAction, RemediationPlan};
