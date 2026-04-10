@@ -139,9 +139,10 @@ pub fn execute_plan(
 
         info!("[{}/{}] Executing: {}", i + 1, actions.len(), desc);
 
-        // Use longer timeout for package installs (up to 5 minutes)
+        // Use longer timeout for package operations (up to 5 minutes)
         let timeout = match action {
             RemediationAction::InstallPackage { .. } => 300,
+            RemediationAction::UpgradePackage { .. } => 300,
             RemediationAction::RunCommand { .. } => 120,
             _ => 60,
         };

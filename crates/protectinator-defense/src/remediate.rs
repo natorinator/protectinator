@@ -397,6 +397,12 @@ pub fn generate_patch_plan(host: &str, findings: &[Finding]) -> Option<Remediati
         })
         .collect();
 
+    // Prepend apt-get update to refresh package lists
+    actions.insert(0, RemediationAction::RunCommand {
+        command: "apt-get update -q".to_string(),
+        description: "Refresh package lists".to_string(),
+    });
+
     // Final cleanup action
     actions.push(RemediationAction::RunCommand {
         command: "apt-get autoremove -y".to_string(),
