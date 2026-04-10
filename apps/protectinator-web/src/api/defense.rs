@@ -121,7 +121,7 @@ pub async fn update_plan_status(
         ))?;
 
     // Only allow these transitions
-    let allowed = ["denied", "ignored", "remind", "pending"];
+    let allowed = ["denied", "ignored", "remind", "pending", "superseded"];
     if !allowed.contains(&new_status) {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -144,8 +144,8 @@ pub async fn update_plan_status(
         Json(serde_json::json!({"error": "plan not found"})),
     ))?;
 
-    // Can only change status from pending, remind, denied, or ignored (not done/executing)
-    let changeable = ["pending", "remind", "denied", "ignored"];
+    // Can only change status from these states (not done/executing)
+    let changeable = ["pending", "remind", "denied", "ignored", "approved", "failed"];
     if !changeable.contains(&plan.status.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,

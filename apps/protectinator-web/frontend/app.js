@@ -183,6 +183,7 @@ function app() {
                 executing: 'text-cyan-400', done: 'text-green-500',
                 failed: 'text-red-400', denied: 'text-red-300',
                 ignored: 'text-gray-400', remind: 'text-orange-400',
+                superseded: 'text-gray-500',
             };
             return colors[status] || 'text-gray-400';
         },
@@ -193,6 +194,7 @@ function app() {
                 executing: 'bg-cyan-900/50', done: 'bg-green-900/30',
                 failed: 'bg-red-900/50', denied: 'bg-red-900/20',
                 ignored: 'bg-gray-800/50', remind: 'bg-orange-900/30',
+                superseded: 'bg-gray-900/30',
             };
             return colors[status] || 'bg-gray-800';
         },

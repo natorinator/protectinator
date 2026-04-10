@@ -544,6 +544,8 @@
                         @click="remediationStatusFilter = remediationStatusFilter === 'ignored' ? '' : 'ignored'">Ignored</button>
                 <button class="filter-btn" :class="{ 'active-info': remediationStatusFilter === 'denied' }"
                         @click="remediationStatusFilter = remediationStatusFilter === 'denied' ? '' : 'denied'">Denied</button>
+                <button class="filter-btn" :class="{ 'active-info': remediationStatusFilter === 'superseded' }"
+                        @click="remediationStatusFilter = remediationStatusFilter === 'superseded' ? '' : 'superseded'">Superseded</button>
                 <span class="text-xs text-gray-500 ml-auto" x-text="filteredPlans.length + ' of ' + remediationPlans.length + ' plans'"></span>
             </div>
 
@@ -600,14 +602,35 @@
                                     </div>
                                 </template>
                                 <template x-if="plan.status === 'denied' || plan.status === 'ignored'">
-                                    <button @click="setPlanStatus(plan.id, 'pending')"
-                                            class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition">
-                                        Reopen</button>
+                                    <div class="flex items-center gap-2">
+                                        <button @click="setPlanStatus(plan.id, 'pending')"
+                                                class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition">
+                                            Reopen</button>
+                                        <button @click="setPlanStatus(plan.id, 'superseded')"
+                                                class="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs font-medium rounded transition">
+                                            Supersede</button>
+                                    </div>
                                 </template>
-                                <span x-show="plan.status === 'approved'"
-                                      class="text-xs text-gray-400">
-                                    Run: <code class="bg-gray-800 px-1.5 py-0.5 rounded text-emerald-400" x-text="'protectinator defense remediate ' + plan.id + ' --execute'"></code>
-                                </span>
+                                <template x-if="plan.status === 'failed'">
+                                    <div class="flex items-center gap-2">
+                                        <button @click="setPlanStatus(plan.id, 'pending')"
+                                                class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition">
+                                            Retry</button>
+                                        <button @click="setPlanStatus(plan.id, 'superseded')"
+                                                class="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs font-medium rounded transition">
+                                            Supersede</button>
+                                    </div>
+                                </template>
+                                <template x-if="plan.status === 'approved'">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-gray-400">
+                                            Run: <code class="bg-gray-800 px-1.5 py-0.5 rounded text-emerald-400" x-text="'protectinator defense remediate ' + plan.id + ' --execute'"></code>
+                                        </span>
+                                        <button @click="setPlanStatus(plan.id, 'superseded')"
+                                                class="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs font-medium rounded transition">
+                                            Supersede</button>
+                                    </div>
+                                </template>
                             </div>
                         </div>
 

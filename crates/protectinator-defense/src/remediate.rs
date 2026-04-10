@@ -32,6 +32,8 @@ pub enum PlanStatus {
     Ignored,
     /// User wants to be reminded later
     Remind,
+    /// Replaced by a newer plan for the same host
+    Superseded,
 }
 
 impl std::fmt::Display for PlanStatus {
@@ -45,6 +47,7 @@ impl std::fmt::Display for PlanStatus {
             PlanStatus::Denied => write!(f, "denied"),
             PlanStatus::Ignored => write!(f, "ignored"),
             PlanStatus::Remind => write!(f, "remind"),
+            PlanStatus::Superseded => write!(f, "superseded"),
         }
     }
 }

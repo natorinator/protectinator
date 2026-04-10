@@ -218,6 +218,24 @@ fn run_plan(args: DefensePlanArgs, format: &str) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Supersede old pending/failed/approved plans for this host
+    let old_plans = store.scans.list_plans(Some(&args.host), None)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    // Also check with remote: prefix
+    let old_plans_remote = store.scans.list_plans(Some(&format!("remote:{}", args.host)), None)
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let supersedable = ["pending", "failed", "approved"];
+    let mut superseded_count = 0;
+    for old in old_plans.iter().chain(old_plans_remote.iter()) {
+        if supersedable.contains(&old.status.as_str()) {
+            let _ = store.scans.update_plan_status(old.id, "superseded", None);
+            superseded_count += 1;
+        }
+    }
+    if superseded_count > 0 {
+        eprintln!("Superseded {} old plan(s) for {}", superseded_count, args.host);
+    }
+
     let mut stored_plans = Vec::new();
 
     for (label, plan) in &plans_generated {
