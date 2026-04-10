@@ -3,9 +3,11 @@
 //! Fetches and parses CVE data from the Debian Security Tracker's bulk JSON endpoint.
 
 use crate::error::AdvisoryError;
+use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{debug, warn};
+use std::time::{Duration, Instant};
+use tracing::{debug, info, warn};
 
 /// URL for the Debian Security Tracker bulk JSON data
 const TRACKER_URL: &str = "https://security-tracker.debian.org/tracker/data/json";
@@ -135,6 +137,14 @@ pub struct DebianCveEntry {
     pub description: Option<String>,
 }
 
+/// Result of fetching tracker data
+pub struct FetchResult {
+    /// Parsed tracker data: source_package -> cve_id -> RawDebianCve
+    pub data: HashMap<String, HashMap<String, RawDebianCve>>,
+    /// Last-Modified header from the response, if present
+    pub last_modified: Option<String>,
+}
+
 /// Client for the Debian Security Tracker
 pub struct DebianTracker {
     agent: ureq::Agent,
@@ -144,41 +154,122 @@ impl DebianTracker {
     /// Create a new Debian tracker client
     pub fn new() -> Self {
         let agent = ureq::AgentBuilder::new()
-            .timeout_connect(std::time::Duration::from_secs(15))
-            .timeout_read(std::time::Duration::from_secs(120))
+            .timeout_connect(Duration::from_secs(15))
+            .timeout_read(Duration::from_secs(120))
             .build();
         Self { agent }
     }
 
-    /// Fetch the entire Debian Security Tracker dataset
+    /// Fetch the entire Debian Security Tracker dataset with gzip, retry, and conditional request support
     ///
-    /// Returns a map of source_package -> cve_id -> RawDebianCve
+    /// Returns `Ok(Some(FetchResult))` on success, `Ok(None)` if the server returned 304 Not Modified,
+    /// or an error on failure. Retries up to 3 times with exponential backoff on transient errors.
     pub fn fetch_all(
         &self,
-    ) -> Result<HashMap<String, HashMap<String, RawDebianCve>>, AdvisoryError> {
-        debug!("Fetching Debian Security Tracker data from {}", TRACKER_URL);
+        if_modified_since: Option<&str>,
+    ) -> Result<Option<FetchResult>, AdvisoryError> {
+        let max_retries = 3;
+        let mut last_error = None;
 
-        let response = self
-            .agent
-            .get(TRACKER_URL)
-            .call()
-            .map_err(|e| {
-                AdvisoryError::Http(format!(
-                    "Failed to fetch Debian tracker data from {}: {}",
-                    TRACKER_URL, e
-                ))
-            })?;
+        for attempt in 0..max_retries {
+            if attempt > 0 {
+                let backoff = Duration::from_secs(2u64.pow(attempt as u32));
+                warn!(
+                    "Retry {}/{} after {:?}...",
+                    attempt + 1,
+                    max_retries,
+                    backoff
+                );
+                std::thread::sleep(backoff);
+            }
 
-        let data: HashMap<String, HashMap<String, RawDebianCve>> =
-            response.into_json().map_err(|e| {
-                AdvisoryError::Parse(format!(
-                    "Failed to parse Debian tracker JSON (~69MB): {}",
-                    e
-                ))
-            })?;
+            match self.try_fetch(if_modified_since) {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    // Don't retry parse errors — data is corrupt, not transient
+                    if matches!(e, AdvisoryError::Parse(_)) {
+                        return Err(e);
+                    }
+                    warn!("Fetch attempt {} failed: {}", attempt + 1, e);
+                    last_error = Some(e);
+                }
+            }
+        }
 
-        debug!("Fetched {} source packages from tracker", data.len());
-        Ok(data)
+        Err(last_error
+            .unwrap_or_else(|| AdvisoryError::Http("All retries exhausted".to_string())))
+    }
+
+    fn try_fetch(
+        &self,
+        if_modified_since: Option<&str>,
+    ) -> Result<Option<FetchResult>, AdvisoryError> {
+        info!("Downloading Debian advisory data from {}...", TRACKER_URL);
+        let start = Instant::now();
+
+        let mut request = self.agent.get(TRACKER_URL).set("Accept-Encoding", "gzip");
+
+        if let Some(since) = if_modified_since {
+            request = request.set("If-Modified-Since", since);
+        }
+
+        let response = request.call().map_err(|e| {
+            // Check for 304 Not Modified
+            if let ureq::Error::Status(304, _) = e {
+                return AdvisoryError::NotFound; // We use NotFound to signal 304
+            }
+            AdvisoryError::Http(format!("Failed to fetch {}: {}", TRACKER_URL, e))
+        });
+
+        let response = match response {
+            Ok(r) => r,
+            Err(AdvisoryError::NotFound) => {
+                info!("Debian advisory data not modified since last fetch");
+                return Ok(None); // 304 — cache is still valid
+            }
+            Err(e) => return Err(e),
+        };
+
+        // Capture Last-Modified header
+        let last_modified = response.header("Last-Modified").map(|s| s.to_string());
+
+        // Check if response is gzip-encoded
+        let is_gzip = response
+            .header("Content-Encoding")
+            .map(|h| h.contains("gzip"))
+            .unwrap_or(false);
+
+        let download_secs = start.elapsed().as_secs_f64();
+
+        // Read and decompress
+        let reader = response.into_reader();
+        let data: HashMap<String, HashMap<String, RawDebianCve>> = if is_gzip {
+            info!(
+                "Decompressing gzip response ({:.1}s download)...",
+                download_secs
+            );
+            let decoder = GzDecoder::new(reader);
+            serde_json::from_reader(decoder)
+        } else {
+            info!(
+                "Parsing uncompressed response ({:.1}s download)...",
+                download_secs
+            );
+            serde_json::from_reader(reader)
+        }
+        .map_err(|e| AdvisoryError::Parse(format!("Failed to parse tracker JSON: {}", e)))?;
+
+        let total_secs = start.elapsed().as_secs_f64();
+        info!(
+            "Parsed {} source packages in {:.1}s",
+            data.len(),
+            total_secs
+        );
+
+        Ok(Some(FetchResult {
+            data,
+            last_modified,
+        }))
     }
 
     /// Parse raw tracker data into structured entries for a specific release

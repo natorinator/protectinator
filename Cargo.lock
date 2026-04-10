@@ -1542,6 +1542,7 @@ name = "protectinator-advisory"
 version = "2026.3.28"
 dependencies = [
  "chrono",
+ "flate2",
  "protectinator-core",
  "rusqlite",
  "serde",

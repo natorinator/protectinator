@@ -97,11 +97,27 @@ pub fn enrich_findings_with_debian_intel(findings: &mut [Finding], release: Opti
 /// Refresh the advisory cache from the Debian tracker
 fn refresh_cache(cache: &mut AdvisoryCache, release: &str) -> Result<usize, String> {
     let tracker = DebianTracker::new();
-    let data = tracker
-        .fetch_all()
+
+    // Get Last-Modified from previous fetch for conditional request
+    let last_modified = cache.get_metadata("last_modified");
+
+    // Fetch with conditional request
+    let result = tracker
+        .fetch_all(last_modified.as_deref())
         .map_err(|e| format!("Fetch failed: {}", e))?;
 
-    let entries = DebianTracker::parse_for_release(&data, release);
+    let fetch_result = match result {
+        Some(r) => r,
+        None => {
+            // 304 Not Modified — cache is still valid, reset staleness
+            cache
+                .set_metadata("last_checked", &chrono::Utc::now().to_rfc3339())
+                .map_err(|e| format!("Failed to update metadata: {}", e))?;
+            return Ok(0); // No new data
+        }
+    };
+
+    let entries = DebianTracker::parse_for_release(&fetch_result.data, release);
     let count = entries.len();
 
     cache
@@ -110,6 +126,13 @@ fn refresh_cache(cache: &mut AdvisoryCache, release: &str) -> Result<usize, Stri
     cache
         .store_entries(release, &entries)
         .map_err(|e| format!("Cache store failed: {}", e))?;
+
+    // Store Last-Modified for future conditional requests
+    if let Some(ref lm) = fetch_result.last_modified {
+        cache
+            .set_metadata("last_modified", lm)
+            .map_err(|e| format!("Failed to store Last-Modified: {}", e))?;
+    }
 
     Ok(count)
 }

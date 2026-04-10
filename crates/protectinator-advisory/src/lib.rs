@@ -10,5 +10,5 @@ mod error;
 
 pub use cache::AdvisoryCache;
 pub use classify::{ActionabilityClass, CveIntelligence};
-pub use debian::{DebianCveEntry, DebianTracker, SubState, TrackerStatus};
+pub use debian::{DebianCveEntry, DebianTracker, FetchResult, SubState, TrackerStatus};
 pub use error::AdvisoryError;

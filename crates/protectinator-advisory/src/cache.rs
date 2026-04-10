@@ -44,6 +44,10 @@ impl AdvisoryCache {
                 binary_name TEXT PRIMARY KEY,
                 source_name TEXT NOT NULL,
                 cached_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cache_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );",
         )
         .map_err(|e| AdvisoryError::Cache(format!("Failed to create tables: {}", e)))?;
@@ -204,6 +208,28 @@ impl AdvisoryCache {
             .collect();
 
         Ok(entries)
+    }
+
+    /// Get a metadata value
+    pub fn get_metadata(&self, key: &str) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT value FROM cache_metadata WHERE key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .ok()
+    }
+
+    /// Set a metadata value
+    pub fn set_metadata(&self, key: &str, value: &str) -> Result<(), AdvisoryError> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?1, ?2)",
+                params![key, value],
+            )
+            .map_err(|e| AdvisoryError::Cache(format!("Failed to set metadata: {}", e)))?;
+        Ok(())
     }
 
     /// Drop all cached data

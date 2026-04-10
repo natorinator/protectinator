@@ -123,6 +123,9 @@ tower-http = { version = "0.6", features = ["cors", "fs"] }
 # Hashing (dpkg md5sums compatibility)
 md-5 = "0.10"
 
+# Compression
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
 [profile.release]
 lto = "fat"
 codegen-units = 1
