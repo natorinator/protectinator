@@ -173,6 +173,10 @@
                                     <span class="text-xs px-2 py-0.5 rounded-full font-medium"
                                           :class="planStatusBg(plan.status) + ' ' + planStatusColor(plan.status)"
                                           x-text="plan.status"></span>
+                                    <span x-show="plan.source_findings && (plan.source_findings.includes('container-vuln-') || plan.source_findings.includes('supply-chain-vuln-'))"
+                                          class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-900/50 text-blue-300 border border-blue-700/50">Patching</span>
+                                    <span x-show="plan.source_findings && plan.source_findings.includes('defense-')"
+                                          class="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-900/50 text-purple-300 border border-purple-700/50">Defense</span>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs text-gray-500" x-text="formatDate(plan.created_at)"></span>
@@ -560,6 +564,10 @@
                                 <span class="text-xs px-2 py-0.5 rounded-full font-medium"
                                       :class="planStatusBg(plan.status) + ' ' + planStatusColor(plan.status)"
                                       x-text="plan.status"></span>
+                                <span x-show="plan.source_findings && (plan.source_findings.includes('container-vuln-') || plan.source_findings.includes('supply-chain-vuln-'))"
+                                      class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-900/50 text-blue-300 border border-blue-700/50">Patching</span>
+                                <span x-show="plan.source_findings && plan.source_findings.includes('defense-')"
+                                      class="text-xs px-2 py-0.5 rounded-full font-medium bg-purple-900/50 text-purple-300 border border-purple-700/50">Defense</span>
                             </div>
                             <div class="flex items-center gap-3">
                                 <span class="text-xs text-gray-500" x-text="'Created: ' + formatDate(plan.created_at)"></span>

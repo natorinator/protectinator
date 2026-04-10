@@ -2,7 +2,7 @@
 
 use clap::{Args, Subcommand};
 use protectinator_data::DataStore;
-use protectinator_defense::{execute_plan, generate_plan, DefenseAudit, HostContext, RemediationAction, RemediationPlan, PlanStatus};
+use protectinator_defense::{execute_plan, generate_patch_plan, generate_plan, DefenseAudit, HostContext, RemediationAction, RemediationPlan, PlanStatus};
 use protectinator_fleet::config::HostEntry;
 use protectinator_fleet::FleetConfig;
 use protectinator_remote::types::RemoteHost;
@@ -164,9 +164,14 @@ fn run_plan(args: DefensePlanArgs, format: &str) -> anyhow::Result<()> {
         .scan_findings(scan.id)
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    let findings: Vec<protectinator_core::Finding> = stored_findings
+    // Convert stored findings to Finding objects, keeping all types
+    let all_findings: Vec<protectinator_core::Finding> = stored_findings
         .iter()
-        .filter(|f| f.finding_id.starts_with("defense-"))
+        .filter(|f| {
+            f.finding_id.starts_with("defense-")
+                || f.finding_id.starts_with("container-vuln-")
+                || f.finding_id.starts_with("supply-chain-vuln-")
+        })
         .map(|sf| {
             let severity = match sf.severity.to_lowercase().as_str() {
                 "critical" => protectinator_core::Severity::Critical,
@@ -188,54 +193,77 @@ fn run_plan(args: DefensePlanArgs, format: &str) -> anyhow::Result<()> {
         })
         .collect();
 
-    if findings.is_empty() {
-        println!("No defense findings for host '{}' -- nothing to remediate.", args.host);
+    if all_findings.is_empty() {
+        println!("No defense or vulnerability findings for host '{}' -- nothing to remediate.", args.host);
         return Ok(());
     }
 
     // Load allowed_services from fleet.toml
     let allowed_services = load_allowed_services(&args.host);
 
-    // Generate plan
-    let plan = match generate_plan(&args.host, &findings, &allowed_services) {
-        Some(p) => p,
-        None => {
-            println!("No remediable findings for host '{}'.", args.host);
-            return Ok(());
-        }
-    };
+    let mut plans_generated = Vec::new();
 
-    // Store the plan
-    let actions_json = serde_json::to_string(&plan.actions)?;
-    let source_findings = plan.source_findings.join(",");
-    let plan_id = store
-        .scans
-        .store_plan(&plan.host, &plan.status.to_string(), &actions_json, &source_findings)
-        .map_err(|e| anyhow::anyhow!(e))?;
+    // Generate defense plan
+    if let Some(defense_plan) = generate_plan(&args.host, &all_findings, &allowed_services) {
+        plans_generated.push(("Defense", defense_plan));
+    }
 
-    if format == "json" {
-        let mut plan_out = plan.clone();
-        plan_out.id = Some(plan_id);
-        println!("{}", serde_json::to_string_pretty(&plan_out)?);
+    // Generate patch plan for CVE vulnerabilities
+    if let Some(patch_plan) = generate_patch_plan(&args.host, &all_findings) {
+        plans_generated.push(("Patching", patch_plan));
+    }
+
+    if plans_generated.is_empty() {
+        println!("No remediable findings for host '{}'.", args.host);
         return Ok(());
     }
 
-    // Display plan
-    println!("\x1b[1mRemediation Plan #{} for {}\x1b[0m", plan_id, plan.host);
-    println!("Status: \x1b[93m{}\x1b[0m", plan.status);
-    println!("Source findings: {}", plan.source_findings.join(", "));
-    println!();
+    let mut stored_plans = Vec::new();
 
-    for (i, action) in plan.actions.iter().enumerate() {
-        println!("  {}. {}", i + 1, action.describe());
-        println!("     \x1b[90m$ {}\x1b[0m", action.to_command());
-        println!();
+    for (label, plan) in &plans_generated {
+        let actions_json = serde_json::to_string(&plan.actions)?;
+        let source_findings = plan.source_findings.join(",");
+        let plan_id = store
+            .scans
+            .store_plan(&plan.host, &plan.status.to_string(), &actions_json, &source_findings)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        stored_plans.push((label, plan_id, plan));
     }
 
-    println!(
-        "To approve: \x1b[1mprotectinator defense approve {}\x1b[0m",
-        plan_id
-    );
+    if format == "json" {
+        let out: Vec<serde_json::Value> = stored_plans
+            .iter()
+            .map(|(label, plan_id, plan)| {
+                let mut val = serde_json::to_value(plan).unwrap_or_default();
+                if let Some(obj) = val.as_object_mut() {
+                    obj.insert("id".to_string(), serde_json::json!(plan_id));
+                    obj.insert("plan_type".to_string(), serde_json::json!(label));
+                }
+                val
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&out)?);
+        return Ok(());
+    }
+
+    for (label, plan_id, plan) in &stored_plans {
+        println!("\x1b[1m{} Remediation Plan #{} for {}\x1b[0m", label, plan_id, plan.host);
+        println!("Status: \x1b[93m{}\x1b[0m", plan.status);
+        println!("Source findings: {}", plan.source_findings.join(", "));
+        println!();
+
+        for (i, action) in plan.actions.iter().enumerate() {
+            println!("  {}. {}", i + 1, action.describe());
+            println!("     \x1b[90m$ {}\x1b[0m", action.to_command());
+            println!();
+        }
+
+        println!(
+            "To approve: \x1b[1mprotectinator defense approve {}\x1b[0m",
+            plan_id
+        );
+        println!();
+    }
 
     Ok(())
 }
