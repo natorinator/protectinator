@@ -26,6 +26,12 @@ pub enum PlanStatus {
     Executing,
     Done,
     Failed,
+    /// User explicitly declined this remediation
+    Denied,
+    /// User acknowledged but chose not to act now
+    Ignored,
+    /// User wants to be reminded later
+    Remind,
 }
 
 impl std::fmt::Display for PlanStatus {
@@ -36,6 +42,9 @@ impl std::fmt::Display for PlanStatus {
             PlanStatus::Executing => write!(f, "executing"),
             PlanStatus::Done => write!(f, "done"),
             PlanStatus::Failed => write!(f, "failed"),
+            PlanStatus::Denied => write!(f, "denied"),
+            PlanStatus::Ignored => write!(f, "ignored"),
+            PlanStatus::Remind => write!(f, "remind"),
         }
     }
 }

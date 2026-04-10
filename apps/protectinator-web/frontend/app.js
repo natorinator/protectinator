@@ -29,6 +29,7 @@ function app() {
         sbomSearchResults: [],
         trendChart: null,
         user: null,
+        remediationStatusFilter: '',
 
         async init() {
             // History-based routing
@@ -63,6 +64,7 @@ function app() {
             if (view === 'scans') this.loadAllScans();
             if (view === 'advisories') this.loadAdvisories();
             if (view === 'sboms') this.loadSboms();
+            if (view === 'remediation') this.loadRemediationPlans();
         },
 
         goBack() {
@@ -157,14 +159,51 @@ function app() {
             }
         },
 
+        async setPlanStatus(id, status) {
+            try {
+                const res = await fetch(`/api/defense/plans/${id}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status }),
+                });
+                if (res.ok) {
+                    await this.loadRemediationPlans();
+                } else {
+                    const err = await res.json();
+                    alert(err.error || 'Failed to update plan');
+                }
+            } catch (e) {
+                alert('Failed to update plan');
+            }
+        },
+
         planStatusColor(status) {
-            const colors = { pending: 'text-yellow-400', approved: 'text-green-400', executing: 'text-cyan-400', done: 'text-green-500', failed: 'text-red-400' };
+            const colors = {
+                pending: 'text-yellow-400', approved: 'text-green-400',
+                executing: 'text-cyan-400', done: 'text-green-500',
+                failed: 'text-red-400', denied: 'text-red-300',
+                ignored: 'text-gray-400', remind: 'text-orange-400',
+            };
             return colors[status] || 'text-gray-400';
         },
 
         planStatusBg(status) {
-            const colors = { pending: 'bg-yellow-900/50', approved: 'bg-green-900/50', executing: 'bg-cyan-900/50', done: 'bg-green-900/30', failed: 'bg-red-900/50' };
+            const colors = {
+                pending: 'bg-yellow-900/50', approved: 'bg-green-900/50',
+                executing: 'bg-cyan-900/50', done: 'bg-green-900/30',
+                failed: 'bg-red-900/50', denied: 'bg-red-900/20',
+                ignored: 'bg-gray-800/50', remind: 'bg-orange-900/30',
+            };
             return colors[status] || 'bg-gray-800';
+        },
+
+        get pendingPlanCount() {
+            return this.remediationPlans.filter(p => p.status === 'pending').length;
+        },
+
+        get filteredPlans() {
+            if (!this.remediationStatusFilter) return this.remediationPlans;
+            return this.remediationPlans.filter(p => p.status === this.remediationStatusFilter);
         },
 
         async loadHosts() {

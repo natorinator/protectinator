@@ -45,6 +45,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/defense/plans", get(defense::list_plans))
         .route("/api/defense/plans/{id}", get(defense::get_plan))
         .route("/api/defense/plans/{id}/approve", post(defense::approve_plan))
+        .route("/api/defense/plans/{id}/status", post(defense::update_plan_status))
         // Penalty Box
         .route("/api/penalty-box", get(penaltybox::list_profiles))
         // Advisories

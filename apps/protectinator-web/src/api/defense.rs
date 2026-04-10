@@ -105,3 +105,63 @@ pub async fn approve_plan(
         "approved_at": now,
     })))
 }
+
+/// POST /api/defense/plans/:id/status — update plan status (deny, ignore, remind)
+pub async fn update_plan_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let new_status = body
+        .get("status")
+        .and_then(|s| s.as_str())
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "missing 'status' field"})),
+        ))?;
+
+    // Only allow these transitions
+    let allowed = ["denied", "ignored", "remind", "pending"];
+    if !allowed.contains(&new_status) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("status must be one of: {}", allowed.join(", "))
+            })),
+        ));
+    }
+
+    let store = state.store.lock().map_err(|_| (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": "internal error"})),
+    ))?;
+
+    let plan = store.scans.get_plan(id).map_err(|_| (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": "failed to load plan"})),
+    ))?.ok_or((
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"error": "plan not found"})),
+    ))?;
+
+    // Can only change status from pending, remind, denied, or ignored (not done/executing)
+    let changeable = ["pending", "remind", "denied", "ignored"];
+    if !changeable.contains(&plan.status.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("cannot change status of '{}' plans", plan.status)
+            })),
+        ));
+    }
+
+    store.scans.update_plan_status(id, new_status, None).map_err(|_| (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": "failed to update plan"})),
+    ))?;
+
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "status": new_status,
+    })))
+}

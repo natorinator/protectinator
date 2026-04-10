@@ -20,6 +20,12 @@
             <button class="nav-btn" :class="{ 'active': view === 'scans' }" @click="navigate('scans')">Scans</button>
             <button class="nav-btn" :class="{ 'active': view === 'advisories' }" @click="navigate('advisories')">Advisories</button>
             <button class="nav-btn" :class="{ 'active': view === 'sboms' }" @click="navigate('sboms')">SBOMs</button>
+            <button class="nav-btn" :class="{ 'active': view === 'remediation' }" @click="navigate('remediation')">
+                Remediation
+                <span x-show="pendingPlanCount > 0"
+                      class="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs font-bold bg-yellow-500 text-gray-900 rounded-full"
+                      x-text="pendingPlanCount"></span>
+            </button>
             <div class="ml-auto flex items-center gap-3">
                 <span class="text-sm text-gray-500" x-text="statusText"></span>
                 <template x-if="user">
@@ -507,6 +513,116 @@
             </div>
             <div x-show="sbomNames.length === 0" class="text-gray-500 py-4">
                 No SBOMs found.
+            </div>
+        </div>
+        <!-- Remediation View -->
+        <div x-show="view === 'remediation'" class="p-6">
+            <h2 class="text-xl font-semibold mb-4">Remediation Plans</h2>
+
+            <!-- Status filter -->
+            <div class="flex items-center gap-3 mb-4">
+                <button class="filter-btn" :class="{ 'active-info': !remediationStatusFilter }"
+                        @click="remediationStatusFilter = ''">All</button>
+                <button class="filter-btn" :class="{ 'active-high': remediationStatusFilter === 'pending' }"
+                        @click="remediationStatusFilter = remediationStatusFilter === 'pending' ? '' : 'pending'">
+                    Pending
+                    <span x-show="pendingPlanCount > 0" class="ml-1 text-yellow-400 font-bold" x-text="pendingPlanCount"></span>
+                </button>
+                <button class="filter-btn" :class="{ 'active-info': remediationStatusFilter === 'approved' }"
+                        @click="remediationStatusFilter = remediationStatusFilter === 'approved' ? '' : 'approved'">Approved</button>
+                <button class="filter-btn" :class="{ 'active-info': remediationStatusFilter === 'done' }"
+                        @click="remediationStatusFilter = remediationStatusFilter === 'done' ? '' : 'done'">Done</button>
+                <button class="filter-btn" :class="{ 'active-critical': remediationStatusFilter === 'failed' }"
+                        @click="remediationStatusFilter = remediationStatusFilter === 'failed' ? '' : 'failed'">Failed</button>
+                <button class="filter-btn" :class="{ 'active-info': remediationStatusFilter === 'remind' }"
+                        @click="remediationStatusFilter = remediationStatusFilter === 'remind' ? '' : 'remind'">Remind</button>
+                <button class="filter-btn" :class="{ 'active-info': remediationStatusFilter === 'ignored' }"
+                        @click="remediationStatusFilter = remediationStatusFilter === 'ignored' ? '' : 'ignored'">Ignored</button>
+                <button class="filter-btn" :class="{ 'active-info': remediationStatusFilter === 'denied' }"
+                        @click="remediationStatusFilter = remediationStatusFilter === 'denied' ? '' : 'denied'">Denied</button>
+                <span class="text-xs text-gray-500 ml-auto" x-text="filteredPlans.length + ' of ' + remediationPlans.length + ' plans'"></span>
+            </div>
+
+            <!-- Plans list -->
+            <div x-show="filteredPlans.length === 0" class="text-gray-500 text-center py-8">
+                No remediation plans found.
+            </div>
+
+            <div class="space-y-4">
+                <template x-for="plan in filteredPlans" :key="plan.id">
+                    <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden"
+                         :class="planStatusBg(plan.status)">
+                        <!-- Header -->
+                        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-800/50">
+                            <div class="flex items-center gap-4">
+                                <span class="text-lg text-white font-bold" x-text="'#' + plan.id"></span>
+                                <span class="text-white font-semibold" x-text="plan.host"></span>
+                                <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                      :class="planStatusBg(plan.status) + ' ' + planStatusColor(plan.status)"
+                                      x-text="plan.status"></span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xs text-gray-500" x-text="'Created: ' + formatDate(plan.created_at)"></span>
+                                <span x-show="plan.approved_at" class="text-xs text-green-500" x-text="'Approved: ' + formatDate(plan.approved_at)"></span>
+                                <span x-show="plan.executed_at" class="text-xs text-cyan-500" x-text="'Executed: ' + formatDate(plan.executed_at)"></span>
+                                <template x-if="plan.status === 'pending'">
+                                    <div class="flex items-center gap-2">
+                                        <button @click="approvePlan(plan.id)"
+                                                class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded transition">
+                                            Approve</button>
+                                        <button @click="setPlanStatus(plan.id, 'remind')"
+                                                class="px-3 py-1 bg-orange-700 hover:bg-orange-600 text-white text-xs font-medium rounded transition">
+                                            Remind Later</button>
+                                        <button @click="setPlanStatus(plan.id, 'ignored')"
+                                                class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition">
+                                            Ignore</button>
+                                        <button @click="setPlanStatus(plan.id, 'denied')"
+                                                class="px-3 py-1 bg-red-800 hover:bg-red-700 text-white text-xs font-medium rounded transition">
+                                            Deny</button>
+                                    </div>
+                                </template>
+                                <template x-if="plan.status === 'remind'">
+                                    <div class="flex items-center gap-2">
+                                        <button @click="approvePlan(plan.id)"
+                                                class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded transition">
+                                            Approve Now</button>
+                                        <button @click="setPlanStatus(plan.id, 'ignored')"
+                                                class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition">
+                                            Ignore</button>
+                                    </div>
+                                </template>
+                                <template x-if="plan.status === 'denied' || plan.status === 'ignored'">
+                                    <button @click="setPlanStatus(plan.id, 'pending')"
+                                            class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition">
+                                        Reopen</button>
+                                </template>
+                                <span x-show="plan.status === 'approved'"
+                                      class="text-xs text-gray-400">
+                                    Run: <code class="bg-gray-800 px-1.5 py-0.5 rounded text-emerald-400" x-text="'protectinator defense remediate ' + plan.id + ' --execute'"></code>
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="px-5 py-3">
+                            <div class="text-xs text-gray-500 mb-2">
+                                Source findings: <span class="text-gray-400" x-text="plan.source_findings"></span>
+                            </div>
+                            <div class="space-y-2">
+                                <template x-for="(action, i) in JSON.parse(plan.actions_json || '[]')" :key="i">
+                                    <div class="flex items-start gap-3 text-sm">
+                                        <span class="text-gray-600 font-mono w-6 text-right shrink-0" x-text="(i+1) + '.'"></span>
+                                        <div>
+                                            <div class="text-gray-300" x-text="action.description || action.type"></div>
+                                            <code class="text-xs text-gray-500 bg-gray-800/50 px-2 py-0.5 rounded mt-0.5 inline-block"
+                                                  x-text="'$ ' + (action.command || action.package || action.service || '')"></code>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
             </div>
         </div>
     </div>
