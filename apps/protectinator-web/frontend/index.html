@@ -187,13 +187,19 @@
                                     </button>
                                 </div>
                             </div>
-                            <div class="text-xs text-gray-400 space-y-1">
+                            <div class="text-xs text-gray-400 space-y-1" x-data="{ expanded: false }">
                                 <template x-for="(action, i) in JSON.parse(plan.actions_json || '[]')" :key="i">
-                                    <div class="flex gap-2">
+                                    <div x-show="expanded || i < 3" class="flex gap-2">
                                         <span class="text-gray-600" x-text="(i+1) + '.'"></span>
                                         <span x-text="action.description || action.type"></span>
                                     </div>
                                 </template>
+                                <button x-show="JSON.parse(plan.actions_json || '[]').length > 3"
+                                        @click="expanded = !expanded"
+                                        class="text-emerald-400 hover:text-emerald-300 transition">
+                                    <span x-show="!expanded" x-text="'+ ' + (JSON.parse(plan.actions_json || '[]').length - 3) + ' more'"></span>
+                                    <span x-show="expanded">Show less</span>
+                                </button>
                             </div>
                             <div x-show="plan.executed_at" class="mt-2 text-xs text-gray-500">
                                 Executed: <span x-text="formatDate(plan.executed_at)"></span>
@@ -634,14 +640,11 @@
                             </div>
                         </div>
 
-                        <!-- Actions -->
-                        <div class="px-5 py-3">
-                            <div class="text-xs text-gray-500 mb-2">
-                                Source findings: <span class="text-gray-400" x-text="plan.source_findings"></span>
-                            </div>
+                        <!-- Actions (collapsible) -->
+                        <div class="px-5 py-3" x-data="{ expanded: false }">
                             <div class="space-y-2">
                                 <template x-for="(action, i) in JSON.parse(plan.actions_json || '[]')" :key="i">
-                                    <div class="flex items-start gap-3 text-sm">
+                                    <div x-show="expanded || i < 3" class="flex items-start gap-3 text-sm">
                                         <span class="text-gray-600 font-mono w-6 text-right shrink-0" x-text="(i+1) + '.'"></span>
                                         <div>
                                             <div class="text-gray-300" x-text="action.description || action.type"></div>
@@ -651,6 +654,12 @@
                                     </div>
                                 </template>
                             </div>
+                            <button x-show="JSON.parse(plan.actions_json || '[]').length > 3"
+                                    @click="expanded = !expanded"
+                                    class="mt-2 text-xs text-emerald-400 hover:text-emerald-300 transition">
+                                <span x-show="!expanded" x-text="'Show ' + (JSON.parse(plan.actions_json || '[]').length - 3) + ' more actions...'"></span>
+                                <span x-show="expanded">Show less</span>
+                            </button>
                         </div>
                     </div>
                 </template>
