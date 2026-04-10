@@ -322,15 +322,42 @@ impl ScanStore {
                 .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
                 .unwrap_or_default();
 
+            // Get accepted risk count from findings of the most recent scan
+            let latest_scan_id: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT id FROM scans WHERE repo_path = ?1 ORDER BY scanned_at DESC LIMIT 1",
+                    params![name],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            let accepted_risk = latest_scan_id
+                .and_then(|scan_id| {
+                    self.conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM findings WHERE scan_id = ?1 AND actionability = 'accepted_risk'",
+                            params![scan_id],
+                            |row| row.get::<_, usize>(0),
+                        )
+                        .ok()
+                })
+                .unwrap_or(0);
+
+            // Subtract accepted risk from medium count since they're a subset
+            // (accepted risk findings are medium-severity CVEs that Debian deems low-priority)
+            let adjusted_medium = latest.2.saturating_sub(accepted_risk);
+
             result.push(HostSummary {
                 name,
                 last_scanned,
                 scan_count,
                 latest_critical: latest.0,
                 latest_high: latest.1,
-                latest_medium: latest.2,
+                latest_medium: adjusted_medium,
                 latest_low: latest.3,
                 latest_info: latest.4,
+                latest_accepted_risk: accepted_risk,
                 tags,
             });
         }

@@ -44,7 +44,7 @@
             <h2 class="text-xl font-semibold mb-4">Fleet Overview</h2>
 
             <!-- Fleet Summary -->
-            <div class="grid grid-cols-3 md:grid-cols-6 gap-4 mb-6">
+            <div class="grid grid-cols-4 md:grid-cols-7 gap-4 mb-6">
                 <div class="stat-card">
                     <div class="text-3xl font-bold" x-text="fleet.total_hosts || 0"></div>
                     <div class="text-gray-400 text-sm">Hosts</div>
@@ -52,10 +52,6 @@
                 <div class="stat-card">
                     <div class="text-3xl font-bold" x-text="fleet.total_containers || 0"></div>
                     <div class="text-gray-400 text-sm">Containers</div>
-                </div>
-                <div class="stat-card">
-                    <div class="text-3xl font-bold" x-text="fleet.total_repos || 0"></div>
-                    <div class="text-gray-400 text-sm">Repos</div>
                 </div>
                 <div class="stat-card">
                     <div class="text-3xl font-bold text-red-400" x-text="fleet.total_critical || 0"></div>
@@ -68,6 +64,14 @@
                 <div class="stat-card">
                     <div class="text-3xl font-bold text-yellow-500" x-text="fleet.total_medium || 0"></div>
                     <div class="text-gray-400 text-sm">Medium</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold text-gray-500" x-text="fleet.total_accepted_risk || 0"></div>
+                    <div class="text-gray-400 text-sm">Accepted</div>
+                </div>
+                <div class="stat-card">
+                    <div class="text-3xl font-bold" x-text="fleet.total_repos || 0"></div>
+                    <div class="text-gray-400 text-sm">Repos</div>
                 </div>
             </div>
 
@@ -153,6 +157,7 @@
                             <span class="severity-badge medium" x-show="host.latest_medium > 0" x-text="'M:' + host.latest_medium"></span>
                             <span class="severity-badge low" x-show="host.latest_low > 0" x-text="'L:' + host.latest_low"></span>
                             <span class="severity-badge info" x-show="host.latest_info > 0" x-text="'I:' + host.latest_info"></span>
+                            <span class="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-500" x-show="host.latest_accepted_risk > 0" x-text="'A:' + host.latest_accepted_risk"></span>
                         </div>
                         <div class="text-xs text-gray-500 mt-2" x-text="host.scan_count + ' scans'"></div>
                     </div>

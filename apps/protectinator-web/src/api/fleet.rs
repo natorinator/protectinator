@@ -27,6 +27,7 @@ pub async fn fleet_summary(
     let total_medium: usize = hosts.iter().map(|h| h.latest_medium).sum();
     let total_low: usize = hosts.iter().map(|h| h.latest_low).sum();
     let total_info: usize = hosts.iter().map(|h| h.latest_info).sum();
+    let total_accepted_risk: usize = hosts.iter().map(|h| h.latest_accepted_risk).sum();
 
     // Hosts needing attention (any critical or high findings)
     let needs_attention: Vec<&protectinator_data::HostSummary> = hosts
@@ -64,6 +65,7 @@ pub async fn fleet_summary(
         "total_medium": total_medium,
         "total_low": total_low,
         "total_info": total_info,
+        "total_accepted_risk": total_accepted_risk,
         "needs_attention": needs_attention,
         "freshness": {
             "fresh": fresh,

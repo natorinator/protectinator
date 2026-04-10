@@ -64,6 +64,9 @@ pub struct HostSummary {
     pub latest_medium: usize,
     pub latest_low: usize,
     pub latest_info: usize,
+    /// Findings classified as accepted risk (Debian: unimportant/postponed/ignored)
+    #[serde(default)]
+    pub latest_accepted_risk: usize,
     #[serde(default)]
     pub tags: Vec<String>,
 }
