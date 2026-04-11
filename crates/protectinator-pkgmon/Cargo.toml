@@ -17,6 +17,7 @@ walkdir = { workspace = true }
 regex = { workspace = true }
 rusqlite = { workspace = true }
 md-5 = { workspace = true }
+ureq = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

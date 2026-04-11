@@ -108,6 +108,9 @@ pub struct PkgMonConfig {
 
     /// Path for baseline database storage
     pub baseline_db_path: Option<PathBuf>,
+
+    /// Whether to run online checks (GitHub API, etc.)
+    pub online: bool,
 }
 
 impl Default for PkgMonConfig {
@@ -117,6 +120,7 @@ impl Default for PkgMonConfig {
             manager_filter: None,
             update_baseline: false,
             baseline_db_path: None,
+            online: true,
         }
     }
 }

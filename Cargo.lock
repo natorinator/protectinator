@@ -1769,6 +1769,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+ "ureq",
  "walkdir",
 ]
 

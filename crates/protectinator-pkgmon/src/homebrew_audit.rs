@@ -10,7 +10,7 @@ use crate::scanner::PkgMonCheck;
 use crate::types::{PackageManager, PkgMonContext};
 use protectinator_core::{Finding, FindingSource, Severity};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use tracing::{debug, info, warn};
 
 /// Official Homebrew tap prefixes that don't need auditing
@@ -319,6 +319,262 @@ impl PkgMonCheck for BrewTapAudit {
     }
 }
 
+// --- Tap Reputation Scoring ---
+
+/// Reputation score for a Homebrew tap
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TapReputation {
+    pub stars: u64,
+    pub forks: u64,
+    pub age_days: u64,
+    pub last_push_days: u64,
+    pub archived: bool,
+    pub score: u32,
+}
+
+/// Query GitHub API for tap repository metadata and compute a reputation score
+pub fn score_tap(tap: &BrewTap) -> Result<TapReputation, String> {
+    // Map tap to GitHub repo: owner/homebrew-<short_name>
+    let github_repo = format!("{}/{}", tap.owner, tap.repo);
+    let url = format!("https://api.github.com/repos/{}", github_repo);
+
+    debug!("Querying GitHub API for tap reputation: {}", url);
+
+    let response = ureq::get(&url)
+        .set("User-Agent", "protectinator")
+        .set("Accept", "application/vnd.github.v3+json")
+        .call()
+        .map_err(|e| format!("GitHub API request failed for {}: {}", github_repo, e))?;
+
+    let body: serde_json::Value = response
+        .into_json()
+        .map_err(|e| format!("Failed to parse GitHub API response: {}", e))?;
+
+    let stars = body["stargazers_count"].as_u64().unwrap_or(0);
+    let forks = body["forks_count"].as_u64().unwrap_or(0);
+    let archived = body["archived"].as_bool().unwrap_or(false);
+
+    let now = chrono::Utc::now();
+
+    let age_days = body["created_at"]
+        .as_str()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| (now - dt.with_timezone(&chrono::Utc)).num_days().max(0) as u64)
+        .unwrap_or(0);
+
+    let last_push_days = body["pushed_at"]
+        .as_str()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| (now - dt.with_timezone(&chrono::Utc)).num_days().max(0) as u64)
+        .unwrap_or(999);
+
+    let score = compute_reputation_score(stars, forks, age_days, last_push_days, archived);
+
+    Ok(TapReputation {
+        stars,
+        forks,
+        age_days,
+        last_push_days,
+        archived,
+        score,
+    })
+}
+
+/// Compute a 0-100 reputation score
+fn compute_reputation_score(
+    stars: u64,
+    forks: u64,
+    age_days: u64,
+    last_push_days: u64,
+    archived: bool,
+) -> u32 {
+    let mut score: i32 = 0;
+
+    // Age: max 30 points at 2+ years
+    let age_score = ((age_days as f64 / 730.0) * 30.0).min(30.0) as i32;
+    score += age_score;
+
+    // Stars: max 25 points at 100+
+    let star_score = ((stars as f64 / 100.0) * 25.0).min(25.0) as i32;
+    score += star_score;
+
+    // Activity: max 25 points if pushed < 90 days
+    let activity_score = if last_push_days < 30 {
+        25
+    } else if last_push_days < 90 {
+        20
+    } else if last_push_days < 180 {
+        10
+    } else if last_push_days < 365 {
+        5
+    } else {
+        0
+    };
+    score += activity_score;
+
+    // Forks: max 20 points at 20+
+    let fork_score = ((forks as f64 / 20.0) * 20.0).min(20.0) as i32;
+    score += fork_score;
+
+    // Deductions
+    if archived {
+        score -= 50;
+    }
+    if last_push_days > 365 {
+        score -= 30;
+    }
+
+    score.clamp(0, 100) as u32
+}
+
+/// Cache key for tap reputation in baseline DB metadata
+fn reputation_cache_key(tap: &BrewTap) -> String {
+    format!("tap_reputation:{}", tap.name)
+}
+
+/// Get cached reputation score, returning None if stale (>24h)
+pub fn get_cached_reputation(
+    db: &crate::baseline::BaselineDb,
+    tap: &BrewTap,
+) -> Option<TapReputation> {
+    let key = reputation_cache_key(tap);
+    let cached = db.get_metadata(&key).ok()??;
+    let parsed: serde_json::Value = serde_json::from_str(&cached).ok()?;
+
+    // Check cache freshness (24h)
+    let cached_at = parsed["cached_at"].as_str()?;
+    let cached_time = chrono::DateTime::parse_from_rfc3339(cached_at).ok()?;
+    let age = chrono::Utc::now() - cached_time.with_timezone(&chrono::Utc);
+    if age.num_hours() > 24 {
+        return None;
+    }
+
+    Some(TapReputation {
+        stars: parsed["stars"].as_u64()?,
+        forks: parsed["forks"].as_u64()?,
+        age_days: parsed["age_days"].as_u64()?,
+        last_push_days: parsed["last_push_days"].as_u64()?,
+        archived: parsed["archived"].as_bool()?,
+        score: parsed["score"].as_u64()? as u32,
+    })
+}
+
+/// Cache a reputation score
+pub fn cache_reputation(
+    db: &crate::baseline::BaselineDb,
+    tap: &BrewTap,
+    rep: &TapReputation,
+) {
+    let key = reputation_cache_key(tap);
+    let value = serde_json::json!({
+        "stars": rep.stars,
+        "forks": rep.forks,
+        "age_days": rep.age_days,
+        "last_push_days": rep.last_push_days,
+        "archived": rep.archived,
+        "score": rep.score,
+        "cached_at": chrono::Utc::now().to_rfc3339(),
+    });
+    if let Err(e) = db.set_metadata(&key, &value.to_string()) {
+        warn!("Failed to cache tap reputation for {}: {}", tap.name, e);
+    }
+}
+
+/// Homebrew tap reputation check
+pub struct BrewTapReputationCheck;
+
+impl PkgMonCheck for BrewTapReputationCheck {
+    fn name(&self) -> &str {
+        "brew-tap-reputation"
+    }
+
+    fn package_manager(&self) -> PackageManager {
+        PackageManager::Homebrew
+    }
+
+    fn check(&self, ctx: &PkgMonContext) -> Vec<Finding> {
+        if !ctx.config.online {
+            debug!("Skipping tap reputation check (offline mode)");
+            return Vec::new();
+        }
+
+        let brew_prefix = match crate::types::brew_prefix(&ctx.config.root) {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+
+        let taps = discover_taps(&brew_prefix);
+        let third_party: Vec<_> = taps.iter().filter(|t| !t.is_official).collect();
+
+        if third_party.is_empty() {
+            return Vec::new();
+        }
+
+        // Open baseline DB for caching
+        let db = crate::baseline::BaselineDb::open(&ctx.config.baseline_path()).ok();
+
+        let mut findings = Vec::new();
+
+        for tap in third_party {
+            // Try cache first
+            let reputation = if let Some(ref db) = db {
+                get_cached_reputation(db, tap).or_else(|| {
+                    match score_tap(tap) {
+                        Ok(rep) => {
+                            cache_reputation(db, tap, &rep);
+                            Some(rep)
+                        }
+                        Err(e) => {
+                            warn!("Failed to score tap {}: {}", tap.name, e);
+                            None
+                        }
+                    }
+                })
+            } else {
+                score_tap(tap).ok()
+            };
+
+            let Some(rep) = reputation else { continue };
+
+            let (severity, label) = if rep.score < 20 {
+                (Severity::High, "very low")
+            } else if rep.score < 50 {
+                (Severity::Medium, "low")
+            } else {
+                (Severity::Info, "acceptable")
+            };
+
+            findings.push(
+                Finding::new(
+                    "pkgmon-brew-tap-reputation",
+                    format!("Homebrew tap reputation: {} (score: {}/100)", tap.name, rep.score),
+                    format!(
+                        "Tap '{}' has {} reputation (score: {}/100). \
+                         Stars: {}, Forks: {}, Age: {} days, Last push: {} days ago{}.",
+                        tap.name, label, rep.score,
+                        rep.stars, rep.forks, rep.age_days, rep.last_push_days,
+                        if rep.archived { ", ARCHIVED" } else { "" }
+                    ),
+                    severity,
+                    FindingSource::PackageMonitor {
+                        package_manager: "homebrew".to_string(),
+                        check_category: "tap_reputation".to_string(),
+                    },
+                )
+                .with_resource(tap.path.to_string_lossy())
+                .with_metadata("score", serde_json::json!(rep.score))
+                .with_metadata("stars", serde_json::json!(rep.stars))
+                .with_metadata("forks", serde_json::json!(rep.forks))
+                .with_metadata("age_days", serde_json::json!(rep.age_days))
+                .with_metadata("last_push_days", serde_json::json!(rep.last_push_days))
+                .with_metadata("archived", serde_json::json!(rep.archived)),
+            );
+        }
+
+        findings
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,5 +775,91 @@ mod tests {
 
         let found = find_taps_dir(&brew_prefix);
         assert_eq!(found, Some(taps_dir));
+    }
+
+    // --- Reputation scoring tests ---
+
+    #[test]
+    fn score_high_reputation() {
+        // Popular, active, old repo
+        let score = compute_reputation_score(500, 50, 1000, 10, false);
+        assert!(score >= 80, "score was {}", score);
+    }
+
+    #[test]
+    fn score_low_reputation() {
+        // No stars, no forks, new, no recent push
+        let score = compute_reputation_score(0, 0, 30, 400, false);
+        assert!(score < 20, "score was {}", score);
+    }
+
+    #[test]
+    fn score_archived_penalty() {
+        // Decent repo but archived
+        let score_normal = compute_reputation_score(100, 20, 800, 50, false);
+        let score_archived = compute_reputation_score(100, 20, 800, 50, true);
+        assert!(score_archived < score_normal);
+        assert!(score_archived <= 50, "archived score was {}", score_archived);
+    }
+
+    #[test]
+    fn score_inactive_penalty() {
+        // Good stats but no activity in >1 year
+        let score = compute_reputation_score(50, 10, 1000, 500, false);
+        // Should get age + star + fork points but lose activity and get inactivity penalty
+        assert!(score < 60, "score was {}", score);
+    }
+
+    #[test]
+    fn score_clamped_to_100() {
+        let score = compute_reputation_score(10000, 10000, 10000, 1, false);
+        assert_eq!(score, 100);
+    }
+
+    #[test]
+    fn score_clamped_to_0() {
+        let score = compute_reputation_score(0, 0, 0, 999, true);
+        assert_eq!(score, 0);
+    }
+
+    #[test]
+    fn cache_roundtrip() {
+        let db = crate::baseline::BaselineDb::in_memory().unwrap();
+        let tap = BrewTap {
+            name: "test/tap".to_string(),
+            owner: "test".to_string(),
+            repo: "homebrew-tap".to_string(),
+            path: PathBuf::from("/tmp/tap"),
+            is_official: false,
+        };
+        let rep = TapReputation {
+            stars: 42,
+            forks: 5,
+            age_days: 365,
+            last_push_days: 10,
+            archived: false,
+            score: 75,
+        };
+
+        cache_reputation(&db, &tap, &rep);
+        let cached = get_cached_reputation(&db, &tap).unwrap();
+        assert_eq!(cached.score, 75);
+        assert_eq!(cached.stars, 42);
+    }
+
+    #[test]
+    fn reputation_check_offline_skips() {
+        let tmp = TempDir::new().unwrap();
+        let brew_prefix = setup_brew_with_taps(&tmp);
+        add_tap(&brew_prefix, "someone", "homebrew-thing", true);
+
+        let config = crate::types::PkgMonConfig {
+            root: tmp.path().to_path_buf(),
+            online: false,
+            ..Default::default()
+        };
+        let ctx = crate::types::PkgMonContext::new(config);
+        let findings = BrewTapReputationCheck.check(&ctx);
+        assert!(findings.is_empty());
     }
 }
