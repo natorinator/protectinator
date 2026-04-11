@@ -1,0 +1,22 @@
+[package]
+name = "protectinator-pkgmon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Package manager binary integrity monitoring for Protectinator (apt, Homebrew)"
+
+[dependencies]
+protectinator-core = { workspace = true }
+protectinator-fim = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+rayon = { workspace = true }
+walkdir = { workspace = true }
+regex = { workspace = true }
+rusqlite = { workspace = true }
+md-5 = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

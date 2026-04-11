@@ -118,6 +118,11 @@ pub enum FindingSource {
         check_category: String,
         host: Option<String>,
     },
+    /// Finding from package manager binary integrity monitoring
+    PackageMonitor {
+        package_manager: String,
+        check_category: String,
+    },
 }
 
 /// Type of file change detected

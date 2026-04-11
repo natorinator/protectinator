@@ -24,6 +24,7 @@ members = [
     "crates/protectinator-penaltybox",
     "crates/protectinator-secrets",
     "crates/protectinator-defense",
+    "crates/protectinator-pkgmon",
     "apps/protectinator-cli",
     "apps/protectinator-web",
 ]
@@ -105,6 +106,7 @@ protectinator-advisory = { path = "crates/protectinator-advisory" }
 protectinator-penaltybox = { path = "crates/protectinator-penaltybox" }
 protectinator-secrets = { path = "crates/protectinator-secrets" }
 protectinator-defense = { path = "crates/protectinator-defense" }
+protectinator-pkgmon = { path = "crates/protectinator-pkgmon" }
 
 # Prometheus metrics
 prometheus-client = "0.22"

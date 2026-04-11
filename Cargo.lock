@@ -1754,6 +1754,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "protectinator-pkgmon"
+version = "2026.3.28"
+dependencies = [
+ "chrono",
+ "md-5",
+ "protectinator-core",
+ "protectinator-fim",
+ "rayon",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
 name = "protectinator-platform"
 version = "2026.3.28"
 dependencies = [
