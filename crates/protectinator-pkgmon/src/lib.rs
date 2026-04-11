@@ -28,6 +28,7 @@
 pub mod apt;
 pub mod baseline;
 pub mod homebrew;
+pub mod homebrew_audit;
 pub mod scanner;
 pub mod types;
 
