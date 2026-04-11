@@ -27,6 +27,7 @@
 
 pub mod apt;
 pub mod baseline;
+pub mod flatpak;
 pub mod homebrew;
 pub mod homebrew_audit;
 pub mod scanner;
