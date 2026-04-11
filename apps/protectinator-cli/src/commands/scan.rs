@@ -256,6 +256,24 @@ pub fn run(args: ScanArgs, format: &str) -> anyhow::Result<()> {
     }
 
     let mut results = builder.run()?;
+
+    // Run package monitor checks (apt/Homebrew binary integrity)
+    {
+        if !args.quiet && !is_json && !show_progress {
+            println!("  [+] Package manager integrity");
+        }
+        let pkgmon_config = protectinator_pkgmon::PkgMonConfig::default();
+        let mut pkgmon_scanner = protectinator_pkgmon::PkgMonScanner::new(pkgmon_config);
+        pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::apt::AptIntegrityCheck));
+        pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::apt::AptSourceAudit));
+        pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::homebrew::BrewIntegrityCheck));
+        if let Ok(pkgmon_findings) = pkgmon_scanner.scan() {
+            for finding in pkgmon_findings {
+                results.add_finding(finding);
+            }
+        }
+    }
+
     let duration = start.elapsed();
 
     // Apply suppressions
