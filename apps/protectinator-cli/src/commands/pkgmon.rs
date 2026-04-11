@@ -43,6 +43,10 @@ pub struct PkgMonScanArgs {
     /// Save results to scan history database
     #[arg(long)]
     save: bool,
+
+    /// Skip online checks (GitHub API tap reputation)
+    #[arg(long)]
+    offline: bool,
 }
 
 #[derive(Args)]
@@ -69,6 +73,7 @@ fn build_config(
     root: Option<PathBuf>,
     manager: Option<String>,
     update_baseline: bool,
+    online: bool,
 ) -> protectinator_pkgmon::PkgMonConfig {
     let manager_filter = manager.and_then(|m| m.parse().ok());
 
@@ -77,19 +82,27 @@ fn build_config(
         manager_filter,
         update_baseline,
         baseline_db_path: None,
+        online,
     }
 }
 
 fn run_scan(args: PkgMonScanArgs, format: &str) -> anyhow::Result<()> {
     let start = Instant::now();
-    let config = build_config(args.root, args.manager, args.update_baseline);
+    let config = build_config(args.root, args.manager, args.update_baseline, !args.offline);
 
     let mut scanner = protectinator_pkgmon::PkgMonScanner::new(config);
 
-    // Register all checks
+    // Phase 1: Binary integrity
     scanner.add_check(Box::new(protectinator_pkgmon::apt::AptIntegrityCheck));
     scanner.add_check(Box::new(protectinator_pkgmon::apt::AptSourceAudit));
     scanner.add_check(Box::new(protectinator_pkgmon::homebrew::BrewIntegrityCheck));
+
+    // Phase 2: Package manager audit
+    scanner.add_check(Box::new(protectinator_pkgmon::homebrew_audit::BrewTapAudit));
+    scanner.add_check(Box::new(protectinator_pkgmon::homebrew_audit::BrewTapReputationCheck));
+    scanner.add_check(Box::new(protectinator_pkgmon::flatpak::FlatpakPermissionAudit));
+    scanner.add_check(Box::new(protectinator_pkgmon::flatpak::FlatpakRemoteAudit));
+    scanner.add_check(Box::new(protectinator_pkgmon::flatpak::FlatpakOverrideAudit));
 
     if format == "text" {
         eprintln!("Scanning package manager binaries...");
@@ -209,7 +222,7 @@ fn run_baseline(args: PkgMonBaselineArgs, format: &str) -> anyhow::Result<()> {
     use protectinator_pkgmon::baseline::BaselineDb;
     use protectinator_pkgmon::types::PackageManager;
 
-    let config = build_config(args.root, args.manager, false);
+    let config = build_config(args.root, args.manager, false, true);
     let detected = protectinator_pkgmon::types::detect_package_managers(&config.root);
 
     if detected.is_empty() {
@@ -284,12 +297,34 @@ fn run_baseline(args: PkgMonBaselineArgs, format: &str) -> anyhow::Result<()> {
 }
 
 fn run_detect(format: &str) -> anyhow::Result<()> {
-    let detected = protectinator_pkgmon::types::detect_package_managers(std::path::Path::new("/"));
+    let root = std::path::Path::new("/");
+    let detected = protectinator_pkgmon::types::detect_package_managers(root);
+
+    // Gather extra info for detected managers
+    let brew_taps = protectinator_pkgmon::types::brew_prefix(root)
+        .map(|p| protectinator_pkgmon::homebrew_audit::discover_taps(&p))
+        .unwrap_or_default();
+    let flatpak_apps = protectinator_pkgmon::flatpak::discover_apps(root);
 
     if format == "json" {
         let managers: Vec<serde_json::Value> = detected
             .iter()
-            .map(|m| serde_json::json!({"name": m.to_string()}))
+            .map(|m| {
+                let mut info = serde_json::json!({"name": m.to_string()});
+                match m {
+                    protectinator_pkgmon::PackageManager::Homebrew => {
+                        info["taps"] = serde_json::json!(brew_taps.len());
+                        info["third_party_taps"] = serde_json::json!(
+                            brew_taps.iter().filter(|t| !t.is_official).count()
+                        );
+                    }
+                    protectinator_pkgmon::PackageManager::Flatpak => {
+                        info["apps"] = serde_json::json!(flatpak_apps.len());
+                    }
+                    _ => {}
+                }
+                info
+            })
             .collect();
         println!("{}", serde_json::to_string_pretty(&managers)?);
     } else {
@@ -298,12 +333,25 @@ fn run_detect(format: &str) -> anyhow::Result<()> {
         } else {
             println!("\x1b[1mDetected Package Managers\x1b[0m\n");
             for manager in &detected {
-                let icon = match manager {
-                    protectinator_pkgmon::PackageManager::Apt => "dpkg",
-                    protectinator_pkgmon::PackageManager::Homebrew => "brew",
-                    protectinator_pkgmon::PackageManager::Flatpak => "flatpak",
-                };
-                println!("  {} ({})", manager, icon);
+                match manager {
+                    protectinator_pkgmon::PackageManager::Apt => {
+                        println!("  apt (dpkg)");
+                    }
+                    protectinator_pkgmon::PackageManager::Homebrew => {
+                        let third_party = brew_taps.iter().filter(|t| !t.is_official).count();
+                        println!(
+                            "  homebrew (brew) — {} taps ({} third-party)",
+                            brew_taps.len(),
+                            third_party
+                        );
+                    }
+                    protectinator_pkgmon::PackageManager::Flatpak => {
+                        println!(
+                            "  flatpak — {} apps installed",
+                            flatpak_apps.len()
+                        );
+                    }
+                }
             }
         }
     }

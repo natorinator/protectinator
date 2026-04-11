@@ -264,9 +264,16 @@ pub fn run(args: ScanArgs, format: &str) -> anyhow::Result<()> {
         }
         let pkgmon_config = protectinator_pkgmon::PkgMonConfig::default();
         let mut pkgmon_scanner = protectinator_pkgmon::PkgMonScanner::new(pkgmon_config);
+        // Phase 1: Binary integrity
         pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::apt::AptIntegrityCheck));
         pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::apt::AptSourceAudit));
         pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::homebrew::BrewIntegrityCheck));
+        // Phase 2: Package manager audit
+        pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::homebrew_audit::BrewTapAudit));
+        pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::homebrew_audit::BrewTapReputationCheck));
+        pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::flatpak::FlatpakPermissionAudit));
+        pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::flatpak::FlatpakRemoteAudit));
+        pkgmon_scanner.add_check(Box::new(protectinator_pkgmon::flatpak::FlatpakOverrideAudit));
         if let Ok(pkgmon_findings) = pkgmon_scanner.scan() {
             for finding in pkgmon_findings {
                 results.add_finding(finding);
