@@ -519,6 +519,7 @@ fn audit_gpg_keys(root: &Path) -> Vec<Finding> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn setup_dpkg(tmp: &TempDir) -> PathBuf {
@@ -695,6 +696,7 @@ mod tests {
 
     // Source audit tests
 
+    #[allow(clippy::needless_return)]
     fn setup_sources(tmp: &TempDir) -> PathBuf {
         let root = tmp.path().to_path_buf();
         fs::create_dir_all(root.join("etc/apt/sources.list.d")).unwrap();
