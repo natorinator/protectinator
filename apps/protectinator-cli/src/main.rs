@@ -266,6 +266,14 @@ enum Commands {
     #[command(subcommand, name = "penalty-box")]
     PenaltyBox(commands::penalty_box::PenaltyBoxCommands),
 
+    /// Package manager binary integrity monitoring
+    ///
+    /// Monitor binaries installed by apt and Homebrew for unauthorized
+    /// modifications. Detects tampered system binaries, unauthorized
+    /// package sources, broken symlinks, and suspicious changes.
+    #[command(subcommand, name = "pkgmon")]
+    PkgMon(commands::pkgmon::PkgMonCommands),
+
     /// Defense audit — check firewall, brute-force protection, and security posture
     #[command(subcommand)]
     Defense(commands::defense::DefenseCommands),
@@ -341,6 +349,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Secrets(cmd) => commands::secrets::run(cmd, format_str),
         #[cfg(feature = "remote")]
         Commands::Remote(cmd) => commands::remote::run(cmd, format_str),
+        Commands::PkgMon(cmd) => commands::pkgmon::run(cmd, format_str),
         Commands::Defense(cmd) => commands::defense::run(cmd, format_str),
         Commands::PenaltyBox(cmd) => commands::penalty_box::run(cmd, format_str),
         Commands::Fleet(cmd) => commands::fleet::run(cmd, format_str),

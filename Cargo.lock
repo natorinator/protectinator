@@ -1521,6 +1521,7 @@ dependencies = [
  "protectinator-osverify",
  "protectinator-penaltybox",
  "protectinator-persistence",
+ "protectinator-pkgmon",
  "protectinator-platform",
  "protectinator-privesc",
  "protectinator-procmon",

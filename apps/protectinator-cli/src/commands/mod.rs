@@ -29,6 +29,7 @@ pub mod yara;
 pub mod defense;
 pub mod fleet;
 pub mod penalty_box;
+pub mod pkgmon;
 #[cfg(feature = "remote")]
 pub mod remote;
 #[cfg(feature = "secrets")]

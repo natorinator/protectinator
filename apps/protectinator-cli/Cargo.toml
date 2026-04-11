@@ -54,6 +54,7 @@ protectinator-report = { workspace = true }
 protectinator-fleet = { workspace = true }
 protectinator-penaltybox = { workspace = true }
 protectinator-defense = { workspace = true }
+protectinator-pkgmon = { workspace = true }
 
 clap = { workspace = true }
 serde = { workspace = true }

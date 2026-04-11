@@ -666,6 +666,7 @@ fn extract_check_category(source: &FindingSource) -> Option<String> {
         FindingSource::Remote { inner_source, .. } => extract_check_category(inner_source),
         FindingSource::Secrets { check_category, .. } => Some(check_category.clone()),
         FindingSource::Defense { check_category, .. } => Some(check_category.clone()),
+        FindingSource::PackageMonitor { check_category, .. } => Some(check_category.clone()),
     }
 }
 
