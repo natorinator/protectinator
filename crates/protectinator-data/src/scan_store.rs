@@ -2,7 +2,7 @@
 
 use crate::types::*;
 use protectinator_core::{Finding, FindingSource, Severity};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use tracing::info;
 
@@ -373,6 +373,18 @@ impl ScanStore {
             offset: None,
         };
         self.list_scans(&query)
+    }
+
+    /// Get the latest scan ID for a given scan key (host/repo path)
+    pub fn get_latest_scan_id(&self, scan_key: &str) -> Result<Option<i64>, String> {
+        self.conn
+            .query_row(
+                "SELECT id FROM scans WHERE repo_path = ?1 ORDER BY scanned_at DESC LIMIT 1",
+                rusqlite::params![scan_key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("Query failed: {}", e))
     }
 
     /// Diff two scans by finding_id

@@ -532,7 +532,42 @@
         </div>
         <!-- Remediation View -->
         <div x-show="view === 'remediation'" class="p-6">
-            <h2 class="text-xl font-semibold mb-4">Remediation Plans</h2>
+            <h2 class="text-xl font-semibold mb-4">Defense & Remediation</h2>
+
+            <!-- Defense Posture Overview -->
+            <div x-show="defenseStatus && defenseStatus.hosts && defenseStatus.hosts.length > 0" class="mb-6">
+                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Security Posture</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <template x-for="host in (defenseStatus ? defenseStatus.hosts : [])" :key="host.host">
+                        <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <span class="font-semibold text-white" x-text="host.host"></span>
+                                <span class="text-xs text-gray-500" x-text="host.total_issues === 0 ? 'All clear' : host.total_issues + ' issues'"></span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-sm">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono text-lg" :class="defenseCss(host.categories.firewall.status)" x-text="defenseIcon(host.categories.firewall.status)"></span>
+                                    <span class="text-gray-300">Firewall</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono text-lg" :class="defenseCss(host.categories.bruteforce_protection.status)" x-text="defenseIcon(host.categories.bruteforce_protection.status)"></span>
+                                    <span class="text-gray-300">Brute-force</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono text-lg" :class="defenseCss(host.categories.open_ports.status)" x-text="defenseIcon(host.categories.open_ports.status)"></span>
+                                    <span class="text-gray-300">Ports</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-mono text-lg" :class="defenseCss(host.categories.auto_updates.status)" x-text="defenseIcon(host.categories.auto_updates.status)"></span>
+                                    <span class="text-gray-300">Auto-updates</span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Remediation Plans</h3>
 
             <!-- Status filter -->
             <div class="flex items-center gap-3 mb-4">
@@ -666,6 +701,31 @@
                                 <span x-show="expanded">Show less</span>
                             </button>
                         </div>
+
+                        <!-- Execution result (for done/failed plans) -->
+                        <template x-if="plan.result_json && (plan.status === 'done' || plan.status === 'failed')">
+                            <div class="px-5 py-3 border-t border-gray-800/50">
+                                <div x-data="{ result: JSON.parse(plan.result_json || '{}'), showResult: false }">
+                                    <button @click="showResult = !showResult"
+                                            class="text-xs font-medium transition"
+                                            :class="result.success ? 'text-green-400 hover:text-green-300' : 'text-red-400 hover:text-red-300'">
+                                        <span x-text="result.success ? 'Execution succeeded' : 'Execution failed'"></span>
+                                        <span class="text-gray-500" x-text="' (' + (result.actions_completed || 0) + '/' + (result.actions_total || 0) + ' actions, ' + ((result.duration_ms || 0) / 1000).toFixed(1) + 's)'"></span>
+                                        <span class="ml-1" x-text="showResult ? '▲' : '▼'"></span>
+                                    </button>
+                                    <div x-show="showResult" class="mt-2 space-y-1">
+                                        <template x-for="(ar, i) in (result.action_results || [])" :key="i">
+                                            <div class="flex items-start gap-2 text-xs font-mono">
+                                                <span :class="ar.success ? 'text-green-500' : 'text-red-500'" x-text="ar.success ? '✓' : '✗'"></span>
+                                                <span class="text-gray-400" x-text="ar.description"></span>
+                                                <span x-show="ar.duration_ms > 0" class="text-gray-600" x-text="'(' + (ar.duration_ms / 1000).toFixed(1) + 's)'"></span>
+                                                <span x-show="ar.error" class="text-red-400" x-text="ar.error"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </template>
             </div>

@@ -42,6 +42,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         // Fleet
         .route("/api/fleet/summary", get(fleet::fleet_summary))
         // Defense / Remediation Plans
+        .route("/api/defense/status", get(defense::defense_status))
         .route("/api/defense/plans", get(defense::list_plans))
         .route("/api/defense/plans/{id}", get(defense::get_plan))
         .route("/api/defense/plans/{id}/approve", post(defense::approve_plan))

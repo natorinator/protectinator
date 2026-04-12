@@ -25,6 +25,7 @@ function app() {
         filterActionability: '',
         penaltyBoxProfiles: [],
         remediationPlans: [],
+        defenseStatus: null,
         sbomSearch: '',
         sbomSearchResults: [],
         trendChart: null,
@@ -64,7 +65,7 @@ function app() {
             if (view === 'scans') this.loadAllScans();
             if (view === 'advisories') this.loadAdvisories();
             if (view === 'sboms') this.loadSboms();
-            if (view === 'remediation') this.loadRemediationPlans();
+            if (view === 'remediation') { this.loadRemediationPlans(); this.loadDefenseStatus(); }
         },
 
         goBack() {
@@ -143,6 +144,29 @@ function app() {
             } catch (e) {
                 this.remediationPlans = [];
             }
+        },
+
+        async loadDefenseStatus() {
+            try {
+                const res = await fetch('/api/defense/status');
+                if (res.ok) {
+                    this.defenseStatus = await res.json();
+                }
+            } catch (e) {
+                this.defenseStatus = null;
+            }
+        },
+
+        defenseIcon(status) {
+            if (status === 'ok') return '✓';
+            if (status === 'critical') return '✗';
+            return '!';
+        },
+
+        defenseCss(status) {
+            if (status === 'ok') return 'text-green-400';
+            if (status === 'critical') return 'text-red-400';
+            return 'text-yellow-400';
         },
 
         async approvePlan(id) {
